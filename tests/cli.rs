@@ -333,6 +333,13 @@ fn git_add_takes_git_status_with_staged_deletions() {
         "{}",
         run.stderr
     );
+
+    // As arguments, a glob is for git to read, and `git log` takes paths too.
+    let repo = git_repo("git-add-glob");
+    let run = nux_in(&repo, "git add '*.md' | where staged != null | get path | to nuon");
+    assert_eq!((run.status, run.stdout.as_str()), (0, "[\"README.md\"]\n"), "{}", run.stderr);
+    let run = nux_in(&repo, "git log sub | length");
+    assert_eq!((run.status, run.stdout.as_str()), (0, "1\n"), "{}", run.stderr);
 }
 
 /// `git diff` tells revisions from paths, also for paths with `..` in them.

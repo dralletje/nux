@@ -78,7 +78,7 @@ def pattern-problem [pattern: string, lang: string, found_nothing: bool]: nothin
 @example "Python" { ast-find -l python 'print($$$ARGS)' scripts }
 export def ast-find [
   pattern: string        # Code with holes: $NAME (one thing), $$$NAME (any number), $_
-  ...paths: string       # Files or directories to search (default: the current directory)
+  ...paths: path         # Files or directories to search (default: the current directory)
   --lang (-l): string    # Required. The pattern's language: ts, tsx, js, python, rust, go, css, html, json, yaml, java, ...
   --rewrite (-r): string # What a match should become; may use the pattern's holes
   --glob (-g): string    # Only files matching this glob, e.g. '*.tsx' or '!*.test.ts'

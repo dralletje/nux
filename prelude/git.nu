@@ -124,7 +124,7 @@ def from-here [here: list<string>]: string -> string {
   | sort-by commits --reverse
 }
 export def log [
-  ...paths: string       # Only commits that touch these files or directories
+  ...paths: path         # Only commits that touch these files or directories
   --max (-n): int        # At most this many commits (default: all)
   --since: string        # Only commits after this, as git reads it: "2 weeks ago", "2026-01-31"
   --author: string       # Only commits whose author matches this
@@ -466,7 +466,7 @@ export def changes [
 @example "Stage some files" { git add src/cli.ts src/help.ts }
 @example "Stage everything, untracked files too (^git add -A)" { git add --all }
 export def add [
-  ...paths: string # Files or directories, from the current directory
+  ...paths: path   # Files or directories, from the current directory
   --all (-A)       # Everything: changed, deleted and untracked files
 ]: [nothing -> table, list<string> -> table, table -> table] {
   let input = $in
