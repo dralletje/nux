@@ -9,7 +9,7 @@
 # Run ast-grep and give its matches; no match is an empty list.
 def run-ast-grep [arguments: list<string>]: nothing -> list<any> {
   if (which ast-grep | is-empty) {
-    error make {msg: "ast-find needs `ast-grep`, which is not installed", help: "See 'Setting up a machine' in the README of packages/nux-cli."}
+    error make {msg: "ast-find needs `ast-grep`, which is not installed", help: "It is the `ast-grep` binary from https://github.com/ast-grep/ast-grep/releases, on PATH."}
   }
   let run = (^ast-grep run ...$arguments --json=stream | complete)
   # ast-grep exits with 1 when nothing matched, and with more for a real problem (an unknown

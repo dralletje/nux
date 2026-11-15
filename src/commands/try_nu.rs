@@ -91,7 +91,7 @@ impl Command for TryNu {
         vec![
             Example {
                 description: "Test a module after changing it.",
-                example: "try-nu -I [packages/nux-cli/prelude] 'use git.nu; git diff | length'",
+                example: "try-nu -I [scripts] 'use tools.nu; tools check'",
                 result: None,
             },
             Example { description: "An error as data.", example: "try-nu 'open nope.json' | get error.msg", result: None },

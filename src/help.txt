@@ -85,7 +85,7 @@ NOTHING CARRIES OVER, EXCEPT WHAT IS KEPT
 TRYING CODE
   To run code apart from your own call, as `nu -c` would but with data back:
       try-nu 'open nope.json'                  {value, error, printed, stderr}
-      try-nu -I [packages/nux-cli/prelude] 'use git.nu; git diff | length'
+      try-nu -I [scripts] 'use tools.nu; tools check'
                                                a module read fresh, after you changed it
       [1 2 3] | try-nu '$in | math sum'        the input is the code's $in
   `error` is null, or a record: msg, code, help, line, column, text. Use it to test
