@@ -80,7 +80,11 @@ COMMANDS THAT GIVE TABLES   (examples for each: nux help <command>)
                                             the hunks those lines are in)
       git info                              root, branch, head, upstream, ahead, behind, clean, remotes
       git status | where ... | git add      stage the rows (or paths); gives git status after
-      typecheck                             TypeScript diagnostics: file, line, code, message
+      ^pnpm typecheck | complete | get stdout | from tsc
+                                            TypeScript errors: file, line, column, category,
+                                            code, message. From whatever runs tsc: a script,
+                                            ^npx tsc --noEmit, a build. Do not read tsc's text.
+                                            (`typecheck` runs the nearest tsc --noEmit itself.)
       ^node --test --test-reporter=tap | complete | from tap
                                             test results: name, status, duration, file, line,
                                             error. For a package script:
