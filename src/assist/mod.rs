@@ -12,6 +12,7 @@
 //! A helper should only speak when it is sure; a wrong hint costs more than no hint.
 
 mod flags;
+mod glob;
 mod preview;
 mod shell;
 
@@ -23,7 +24,7 @@ use crate::format::{CODE_FILE, Sources};
 pub use preview::{large_text, large_value};
 
 /// The helpers that give hints for errors, asked in this order.
-const ERROR_HELPERS: &[fn(&ErrorContext) -> Option<String>] = &[flags::hint, shell::hint];
+const ERROR_HELPERS: &[fn(&ErrorContext) -> Option<String>] = &[flags::hint, shell::hint, glob::hint];
 
 /// The error as Nushell made it, for helpers that need its fields.
 pub enum Raw<'a> {
@@ -47,6 +48,8 @@ pub struct ErrorContext<'a> {
     pub raw: &'a Raw<'a>,
     /// Nushell's error code, e.g. `nu::parser::unknown_flag`.
     pub code: Option<String>,
+    /// The error's message (its first line, e.g. "error with glob pattern").
+    pub message: String,
     /// The text of the agent's code the error points at (its first label), when it points there.
     pub near: Option<String>,
     /// The whole line of the agent's code that contains it.
@@ -72,7 +75,7 @@ pub fn error_hints(raw: &Raw, sources: &dyn Sources, engine: &EngineState) -> St
         }
         _ => (None, None),
     };
-    let context = ErrorContext { raw, code: error.code().map(|c| c.to_string()), near, line, engine };
+    let context = ErrorContext { raw, code: error.code().map(|c| c.to_string()), message: error.to_string(), near, line, engine };
     ERROR_HELPERS
         .iter()
         .filter_map(|helper| helper(&context))

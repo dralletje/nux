@@ -440,6 +440,19 @@ fn bash_habits_get_the_nushell_way() {
     assert_eq!(hint("ls && ls"), "");
 }
 
+/// A glob pattern Nushell's glob refuses: the hint says which part, where Nushell's own
+/// message is only "failed to parse glob expression".
+#[test]
+fn glob_patterns_that_are_refused_get_a_reason() {
+    let run = nux(&[], "glob --no-dir '{,web/,../,/home/coder/}{,.}cloudflare.env'");
+    assert_eq!(run.status, 1);
+    assert!(run.stdout.contains("Hint: Nushell's glob has no empty alternatives"), "{}", run.stdout);
+    assert!(run.stdout.contains("may not start at `/` or `~`"), "{}", run.stdout);
+    let run = nux(&[], "glob '{web,/home/coder}/x'");
+    assert!(run.stdout.contains("may not start at `/`"), "{}", run.stdout);
+    assert!(!run.stdout.contains("empty alternatives"), "{}", run.stdout);
+}
+
 #[test]
 fn stopping_nux_ends_the_commands_it_started() {
     let dir = scratch();
