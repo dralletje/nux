@@ -2,7 +2,7 @@
 # with data as result instead of text.
 #
 # A module: `use browser` gives `browser <operation>` (main, below) and `browser do { ... }`
-# (do.nu), and nothing else. The prelude does that for every session.
+# (do.nu), and nothing else. The prelude does that for every call.
 
 use session.nu browser-tool
 export use do.nu

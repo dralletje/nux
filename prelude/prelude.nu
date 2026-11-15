@@ -1,4 +1,5 @@
-# Commands that every nux session has. Loaded by `nux serve` when a session starts.
+# Commands that every nux call has. Bundled in the nux binary and loaded at the start of
+# every call (src/prelude.rs, src/engine.rs).
 # This file has py, js and search; the files next to it the rest.
 
 export use git.nu
@@ -65,7 +66,7 @@ export def py [
 # The input is available as `data`. The value of the last expression is the result; a
 # promise is awaited. Code that uses `await` at the top level runs as the body of an async
 # function instead, and gives its result with `return`. `require(...)` and `import(...)`
-# find packages from the session's working directory, so a project's own node_modules work.
+# find packages from the working directory, so a project's own node_modules work.
 # Values keep their type in both directions: binary <-> Buffer, record <-> object,
 # table <-> array of objects, datetime <-> Temporal.ZonedDateTime, duration <->
 # Temporal.Duration, filesize <-> Nu.FileSize. Dates and durations are exact (nanoseconds,

@@ -1,15 +1,19 @@
-# The usage log: what was asked of nux, by whom, and how it went (written by src/usage_log.ts).
+# The usage log: what was asked of nux, by whom, and how it went (written by
+# src/usage_log.rs; the TypeScript nux wrote the same format, without `runner`).
 
-# The calls made to nux, oldest first: one row per call, from every session on this machine.
+# The calls made to nux, oldest first: one row per call, by every agent on this machine.
 #
-# Columns: at, kind (eval, help, find, guide, stop, list, invalid), outcome (ok, error,
-# external_failed, timeout, usage_error, session_failed, caller_killed, or unfinished: still
-# running, or killed outright), duration, reason, code, error_code, text (what the caller
-# got to see), session, session_named, conversation, cwd, argv, timeout_seconds,
-# json, pid, id.
+# Columns: at, runner (which nux: "nux-rs <version>", or "nux-ts" for the TypeScript one),
+# kind (eval, try-nu, help, find, guide, invalid; the TypeScript nux also had stop and list),
+# outcome (ok, error, external_failed, usage_error, start_failed, caller_killed, or
+# unfinished: still running, or killed outright; the TypeScript nux also had timeout and
+# session_failed), duration, reason, code, error_code, text (what the caller got to see),
+# conversation, cwd, argv, pid, id. Only the TypeScript nux filled session, session_named,
+# timeout_seconds and json.
 @example "what failed today, and why it was run" { nux-log | where outcome not-in [ok unfinished] | select at outcome reason code text }
 @example "which commands agents look up" { nux-log --since 7day | where kind in [help find] | get argv | each { str join " " } | uniq --count | sort-by count -r }
 @example "how often a reason is given" { nux-log --since 7day | where kind == eval | each { $in.reason != null } | uniq --count }
+@example "the two versions side by side" { nux-log --since 1day | where kind == eval | group-by runner --to-table | each {|g| {runner: $g.runner, calls: ($g.items | length), failed: ($g.items | where outcome != ok | length)} } }
 export def nux-log [
   --since: duration = 1day # how far back to look
   --dir: path              # the log's directory (default: $env.NUX_LOG_DIR, else ~/.local/state/nux/log)
@@ -29,6 +33,7 @@ export def nux-log [
       let end = ($call.items | where event == "end" | get 0? | default $no_end)
       {
         at: ($start.at | into datetime)
+        runner: ($start.runner? | default "nux-ts")
         kind: $start.kind
         outcome: $end.outcome
         duration: (if $end.duration_ms == null { null } else { $end.duration_ms * 1ms })

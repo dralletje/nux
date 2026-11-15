@@ -1,7 +1,7 @@
 # Showing values on the way through a pipeline.
 
 # More than this many characters of one `show` are cut off: unlike a call's final value,
-# what is printed along the way is not kept in the session to be looked at later.
+# what is printed along the way is not kept to be looked at later.
 const SHOW_LIMIT = 2000
 
 # Of a failed command's output, this many characters are shown, from the end (where the
