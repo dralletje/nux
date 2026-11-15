@@ -231,6 +231,8 @@ fn git_diff_tells_ranges_from_paths() {
         run.stdout.trim_end().to_string()
     };
     assert_eq!(paths(&sub, "git diff ../README.md"), "../README.md");
+    // `..` alone: the parent directory, here the whole repository.
+    assert_eq!(paths(&sub, "git diff .."), "../README.md ../a..b.txt ../old.txt");
     assert_eq!(paths(&sub, "git diff ...(git status | get path)"), "../README.md ../a..b.txt ../old.txt");
     // A deleted file (not on disk) and a file name with two dots in it.
     assert_eq!(paths(&sub, "git diff ../old.txt"), "../old.txt");
@@ -242,6 +244,40 @@ fn git_diff_tells_ranges_from_paths() {
     // A range and a path together.
     let run = nux_in(&repo, "git diff HEAD~1..HEAD README.md | select path added");
     assert_eq!(run.stdout, "[[path,added];[\"README.md\",1]]\n", "{}{}", run.stdout, run.stderr);
+}
+
+/// Ranges into `py` and `js`: counting down and in steps too (Nushell writes those as
+/// `start..next..end`), with or without the end itself.
+#[test]
+fn ranges_reach_py_and_js_as_numbers() {
+    let both = |code: &str| {
+        let run = nux(&[], &format!("{{py: ({code} | py 'list(data)'), js: ({code} | js 'data')}}"));
+        assert_eq!(run.status, 0, "{code}: {}{}", run.stdout, run.stderr);
+        run.stdout.trim_end().to_string()
+    };
+    assert_eq!(both("1..5"), "{py:[1,2,3,4,5],js:[1,2,3,4,5]}");
+    assert_eq!(both("5..1"), "{py:[5,4,3,2,1],js:[5,4,3,2,1]}");
+    assert_eq!(both("1..3..9"), "{py:[1,3,5,7,9],js:[1,3,5,7,9]}");
+    assert_eq!(both("1..3..<9"), "{py:[1,3,5,7],js:[1,3,5,7]}");
+    assert_eq!(both("9..7..<1"), "{py:[9,7,5,3],js:[9,7,5,3]}");
+    assert_eq!(both("5..<1"), "{py:[5,4,3,2],js:[5,4,3,2]}");
+    // Without an end: a description, with its step.
+    let run = nux(&[], "1..3.. | py 'data'");
+    assert_eq!(run.stdout, "{start:1,end:null,step:2,inclusive:true}\n", "{}{}", run.stdout, run.stderr);
+}
+
+/// `wait-for <port>`: done as soon as something listens there; an error after the time
+/// limit when nothing does.
+#[test]
+fn wait_for_a_port() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let run = nux(&[], &format!("wait-for {port} | get ready"));
+    assert_eq!(run.stdout, "true\n", "{}{}", run.stdout, run.stderr);
+    drop(listener);
+    let run = nux(&[], &format!("wait-for {port} --timeout 300ms"));
+    assert_eq!(run.status, 1);
+    assert!(run.stdout.contains("did not answer within"), "{}", run.stdout);
 }
 
 #[test]

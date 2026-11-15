@@ -11,7 +11,8 @@ on the way into Python and back:
     binary      bytes
     record      dict
     table       list of dicts
-    range       range                  (whole numbers, closed; else a dict start/end/inclusive)
+    range       range                  (whole numbers, with an end; also counting down or in
+                                        steps. Else a dict start/end/step/inclusive)
 """
 
 import dataclasses
@@ -76,7 +77,10 @@ INT = re.compile(r"-?\d+\Z")
 FLOAT = re.compile(r"-?(\d+\.\d*|\.\d+|\d+)([eE][+-]?\d+)?\Z")
 WITH_UNIT = re.compile(r"(-?\d+(?:\.\d+)?)([a-zA-Zµ]+)\Z")
 DATE = re.compile(r"\d{4}-\d\d-\d\d([T ]\d\d:\d\d(:\d\d(\.\d+)?)?)?(Z|[+-]\d\d:?\d\d)?\Z")
-RANGE = re.compile(r"(-?\d+(?:\.\d+)?)?\.\.(<|=)?(-?\d+(?:\.\d+)?)?\Z")
+# A range as Nushell writes it: `start..end`, or `start..next..end` when the step is not 1
+# (counting down: `5..4..1`), with `<` before an end that is left out, and no end at all
+# for one without (`1..`, `1..3..`).
+RANGE = re.compile(r"(-?\d+(?:\.\d+)?)?\.\.(?:(-?\d+(?:\.\d+)?)\.\.)?(<|=)?(-?\d+(?:\.\d+)?)?\Z")
 
 ESCAPES = {'"': '"', "'": "'", "\\": "\\", "/": "/", "n": "\n", "r": "\r", "t": "\t", "b": "\b", "f": "\f", "0": "\0"}
 
@@ -126,13 +130,17 @@ def parse_word(word):
             pass
     in_range = RANGE.match(word)
     if in_range:
-        start, operator, end = in_range.groups()
+        start, after, operator, end = in_range.groups()
         inclusive = operator != "<"
-        if start is not None and end is not None and INT.match(start) and INT.match(end):
-            return range(int(start), int(end) + (1 if inclusive else 0))
+        whole = all(part is None or INT.match(part) for part in (start, after, end))
+        step = (parse_number(after) - parse_number(start or "0")) if after is not None else 1
+        if whole and start is not None and end is not None and step != 0:
+            stop = int(end) + ((1 if step > 0 else -1) if inclusive else 0)
+            return range(int(start), stop, int(step))
         return {
             "start": None if start is None else parse_number(start),
             "end": None if end is None else parse_number(end),
+            "step": step,
             "inclusive": inclusive,
         }
     # Anything else is text: Nushell quotes a string that could be read as something else.

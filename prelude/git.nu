@@ -130,7 +130,8 @@ export def log [
   if $author != null { $arguments ++= [--author $author] }
   if $range != null { $arguments ++= [$range] }
   let arguments = $arguments ++ [--] ++ $paths
-  let here = (here)
+  # Only --files has paths to give from the current directory (another git process).
+  let here = (if $files { here } else { [] })
   run-git $arguments | split row "\u{1e}" | skip 1 | each {|record|
     let fields = ($record | split row "\u{1f}")
     let commit = {
@@ -329,6 +330,8 @@ export def diff [
     let separator = if ($target | str contains "...") { "..." } else if ($target | str contains "..") { ".." } else { null }
     if $separator == null { return (do $is_commit $target) }
     let ends = ($target | split row $separator)
+    # `..` alone is the parent directory: a range has at least one end of its own.
+    if ($ends | all {|end| $end == "" }) { return false }
     (($ends | length) == 2) and ($ends | all {|end| do $is_commit (if $end == "" { "HEAD" } else { $end }) })
   }
   let classified = ($targets | each {|target| {target: $target, revision: (do $is_revision $target)} })

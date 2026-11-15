@@ -12,7 +12,8 @@
 ///     record      object
 ///     table       array of objects
 ///     int         number, or BigInt when it does not fit a number exactly
-///     range       array                   (whole numbers, closed; else {start, end, inclusive})
+///     range       array                   (whole numbers, with an end; also counting down or in
+///                                          steps. Else {start, end, step, inclusive})
 ///
 /// Temporal needs Node 26 or newer. Written as a datetime as well: a Date, and Temporal's
 /// Instant, PlainDateTime and PlainDate (the last two are taken as UTC by Nushell).
@@ -113,7 +114,10 @@ const INT = /^-?\d+$/;
 const FLOAT = /^-?(\d+\.\d*|\.\d+|\d+)([eE][+-]?\d+)?$/;
 const WITH_UNIT = /^(-?\d+(?:\.\d+)?)([a-zA-Zµ]+)$/;
 const DATE = /^\d{4}-\d\d-\d\d([T ]\d\d:\d\d(:\d\d(\.\d+)?)?)?(Z|[+-]\d\d:?\d\d)?$/;
-const RANGE = /^(-?\d+(?:\.\d+)?)?\.\.(<|=)?(-?\d+(?:\.\d+)?)?$/;
+/// A range as Nushell writes it: `start..end`, or `start..next..end` when the step is not 1
+/// (counting down: `5..4..1`), with `<` before an end that is left out, and no end at all
+/// for one without (`1..`, `1..3..`).
+const RANGE = /^(-?\d+(?:\.\d+)?)?\.\.(?:(-?\d+(?:\.\d+)?)\.\.)?(<|=)?(-?\d+(?:\.\d+)?)?$/;
 /// Above this many items a range is not written out as an array.
 const RANGE_ARRAY_LIMIT = 1_000_000;
 
@@ -197,14 +201,17 @@ const parse_word = (word) => {
   }
   const range = RANGE.exec(word);
   if (range) {
-    const [, start, operator, end] = range;
+    const [, start, after, operator, end] = range;
     const inclusive = operator !== "<";
-    if (start != null && end != null && INT.test(start) && INT.test(end)) {
+    const step = after != null ? Number(after) - Number(start ?? 0) : 1;
+    const whole = [start, after, end].every((part) => part == null || INT.test(part));
+    if (whole && start != null && end != null && step !== 0) {
       const first = Number(start);
-      const length = Number(end) - first + (inclusive ? 1 : 0);
-      if (length <= RANGE_ARRAY_LIMIT) return Array.from({ length: Math.max(length, 0) }, (_, index) => first + index);
+      const span = (Number(end) - first) / step;
+      const length = inclusive ? Math.floor(span) + 1 : Math.ceil(span);
+      if (length <= RANGE_ARRAY_LIMIT) return Array.from({ length: Math.max(length, 0) }, (_, index) => first + index * step);
     }
-    return { start: start == null ? null : Number(start), end: end == null ? null : Number(end), inclusive };
+    return { start: start == null ? null : Number(start), end: end == null ? null : Number(end), step, inclusive };
   }
   /// Anything else is text: Nushell quotes a string that could be read as something else.
   return word;

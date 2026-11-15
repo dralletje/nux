@@ -53,11 +53,17 @@ export def wait-for [
   --interval (-i): duration = 250ms # Time between attempts
 ]: nothing -> record {
   let is_port = (($target | describe) == "int") or ($target | into string) =~ '^\d+$'
+  if $is_port and (which ss | is-empty) {
+    error make {msg: "wait-for a port needs `ss` (Linux), which is not installed", help: "Wait for a URL instead: wait-for http://localhost:<port>/"}
+  }
   let started = (date now)
   mut answer: any = null
   while $answer == null {
     let status = if $is_port {
-      if (ports ($target | into int) | is-not-empty) { 0 } else { null }
+      # Only whether something listens there: `ss` for that one port, not `ports`, which
+      # looks up every process on the machine (four times a second, while waiting).
+      let listening = (^ss -ltnH $"sport = :($target | into int)" | complete)
+      if $listening.exit_code == 0 and ($listening.stdout | str trim | is-not-empty) { 0 } else { null }
     } else {
       try { http get --full --allow-errors --max-time 5sec ($target | into string) | get status } catch { null }
     }
