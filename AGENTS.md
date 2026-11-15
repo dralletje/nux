@@ -12,9 +12,13 @@
 
 ## Building and testing
 
+Through nux, like every other command (`~/projects/AGENTS.md`): the installed
+`~/.local/bin/nux` is a copy, so building does not touch the nux you run.
+
 ```
-cargo build --release
-cargo test --release
+nux <<< '^cargo build --release'
+nux <<< '^cargo test --release | complete | get stdout | lines | where $it =~ "test result|FAILED"'
+install -m 755 target/release/nux ~/.local/bin/nux     # from nux too: ^install ...
 ```
 
 Release, also while developing: the dependencies (all of Nushell) are already built that
