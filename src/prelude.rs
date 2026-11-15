@@ -27,27 +27,41 @@ include!(concat!(env!("OUT_DIR"), "/prelude_files.rs"));
 
 /// Make the prelude's modules available and give the code that loads the prelude.
 ///
-/// With NUX_PRELUDE_DIR set (to work on the prelude itself without building nux), the prelude
-/// and the runners are read from that folder instead; `nux/runners.nu` then points there.
+/// With NUX_PRELUDE_DIR set (to work on the prelude itself without building nux), the modules
+/// and the runners are read from that folder instead, under the same names.
 pub fn install(engine: &mut EngineState) -> Result<String, String> {
     let from_disk = std::env::var_os("NUX_PRELUDE_DIR").filter(|d| !d.is_empty()).map(PathBuf::from);
-    let runners = match &from_disk {
-        Some(dir) => dir.clone(),
-        None => runners_dir()?,
+    let (runners, mut modules) = match &from_disk {
+        Some(dir) => {
+            let mut found = Vec::new();
+            read_modules(dir, dir, &mut found).map_err(|e| format!("Could not read the prelude in {}: {e}", dir.display()))?;
+            (dir.clone(), found)
+        }
+        None => (runners_dir()?, MODULES.iter().map(|(name, contents)| (name.to_string(), contents.to_vec())).collect()),
     };
     let runners_module = format!("export const RUNNERS = {}\n", nu_raw_string(&runners.to_string_lossy()));
-    let mut modules: Vec<(&str, &[u8])> = MODULES.to_vec();
-    modules.push(("runners.nu", runners_module.as_bytes()));
+    modules.push(("runners.nu".into(), runners_module.into_bytes()));
+    let modules: Vec<(&str, &[u8])> = modules.iter().map(|(name, contents)| (name.as_str(), contents.as_slice())).collect();
 
     let mut working_set = StateWorkingSet::new(engine);
     let _ = add_virtual_dir(&mut working_set, "nux", "", &modules);
     let delta = working_set.render();
     engine.merge_delta(delta).map_err(|e| format!("Could not load the prelude: {e}"))?;
+    Ok("use nux/prelude *".to_string())
+}
 
-    Ok(match from_disk {
-        Some(dir) => format!("use {} *", nu_raw_string(&dir.join("prelude.nu").to_string_lossy())),
-        None => "use nux/prelude.nu *".to_string(),
-    })
+/// The `.nu` files under `dir`, by their path relative to `root`.
+fn read_modules(root: &Path, dir: &Path, found: &mut Vec<(String, Vec<u8>)>) -> std::io::Result<()> {
+    for entry in std::fs::read_dir(dir)? {
+        let path = entry?.path();
+        if path.is_dir() {
+            read_modules(root, &path, found)?;
+        } else if path.extension().is_some_and(|e| e == "nu") {
+            let relative = path.strip_prefix(root).unwrap().to_string_lossy().into_owned();
+            found.push((relative, std::fs::read(&path)?));
+        }
+    }
+    Ok(())
 }
 
 /// The virtual folder `name` with the modules under `relative` (a folder in `prelude/`, "" for
@@ -68,10 +82,18 @@ fn add_virtual_dir(working_set: &mut StateWorkingSet, name: &str, relative: &str
             Some((folder, _)) => {
                 subfolders.insert(folder);
             }
-            None => {
-                let file_name = format!("{name}/{rest}");
+            None if rest == "mod.nu" => {
+                let file_name = format!("{name}/mod.nu");
                 let file_id = working_set.add_file(&file_name, contents);
                 entries.push(working_set.add_virtual_path(file_name, VirtualPath::File(file_id)));
+            }
+            None => {
+                // `git.nu` becomes the folder `nux/git` with a mod.nu: `use nux/git`, like `std/assert`.
+                let module = format!("{name}/{}", rest.strip_suffix(".nu").unwrap_or(rest));
+                let file_name = format!("{module}/mod.nu");
+                let file_id = working_set.add_file(&file_name, contents);
+                let file = working_set.add_virtual_path(file_name, VirtualPath::File(file_id));
+                entries.push(working_set.add_virtual_path(module, VirtualPath::Dir(vec![file])));
             }
         }
     }

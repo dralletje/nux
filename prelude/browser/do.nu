@@ -3,7 +3,7 @@
 # `do` keeps working in these files. (`export def "main do"` in mod.nu would be named
 # `browser main do`, and `export def do` there hides the built-in in the whole module.)
 
-use session.nu with-session
+use nux/browser/session with-session
 
 # Run a closure with a browser of its own: one is started, `browser` inside the closure
 # talks to it, and it is closed when the closure ends, also when it fails.

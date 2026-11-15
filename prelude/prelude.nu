@@ -2,17 +2,19 @@
 # of every call, as the virtual file nux/prelude.nu (src/prelude.rs, src/engine.rs).
 # This file has py, js and search; the files next to it the rest.
 
-export use git.nu
-export use typescript.nu *
-export use browser
-export use servers.nu *
-export use testing.nu *
-export use ast.nu *
-export use output.nu *
-export use usage.nu *
+# Modules by the name they are loaded with from the binary, `nux/<file name without .nu>`,
+# also from each other: a relative path (`git.nu`, `../util.nu`) is not found there.
+export use nux/git
+export use nux/typescript *
+export use nux/browser
+export use nux/servers *
+export use nux/testing *
+export use nux/ast *
+export use nux/output *
+export use nux/usage *
 
 # The folder the runners of py and js are written to (src/prelude.rs).
-use nux/runners.nu RUNNERS
+use nux/runners RUNNERS
 
 # Run code in another language: the input goes to the runner as NUON, its output comes back
 # as a value. A failure becomes an error that points at the code.

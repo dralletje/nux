@@ -1,8 +1,6 @@
 # Finding the browser tool, and a browser session for the length of a closure.
 
-# By its name in the binary (src/prelude.rs): `../util.nu` is not found there, because Nushell
-# does not resolve `..` in the names of virtual files.
-use nux/util.nu find-up
+use nux/util find-up
 
 # Where the browser tool is: $env.NUX_BROWSER, a `browser` on PATH, or the nearest
 # .claude/bin/browser.

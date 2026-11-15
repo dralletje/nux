@@ -69,9 +69,10 @@ point): cargo's own choice took a pre-release of `notify` that does not compile.
 - `src/usage_log.rs`: every call, as JSONL in `~/.local/state/nux/log` (`nux-log` reads it).
 - `src/paths.rs`: nux's folder, `/tmp/nux-<uid>` (owner-only; refused when it is not).
 - `prelude/`: nux's commands written in Nushell, bundled into the binary by `build.rs`
-  (`src/prelude.rs`). The `.nu` files are loaded from the binary as virtual files under
-  `nux/`, the way Nushell loads `std`, so a call can also `use nux/<module>`; a module in
-  `prelude/` refers to another one by that name (`use nux/util.nu`), not with `..`. Only the
+  (`src/prelude.rs`). The `.nu` files are loaded from the binary as virtual modules under
+  `nux/`, the way Nushell loads `std`: `git.nu` is `nux/git`, `browser/do.nu` is
+  `nux/browser/do`, and a call can `use` them too. A module in `prelude/` refers to another
+  one by that name (`use nux/util find-up`), not by a relative path, which is not found. Only the
   runners of `py` and `js` are written out, on first use, to `/tmp/nux-<uid>/runners/`.
   `NUX_PRELUDE_DIR` points nux at this folder instead, to work on it without building.
 - `src/guide.md`: `nux guide`, how to write Nushell well. Adapted from the guide Nushell's

@@ -232,14 +232,25 @@ pub fn error_record(error: &dyn Diagnostic, sources: &dyn Sources, text: &str) -
     )
 }
 
-/// A file of the prelude by its own name, not its whole path.
+/// A module of the prelude by the name it is used with (`nux/git`, src/prelude.rs), another
+/// file by its own name, not its whole path.
 fn short_name(name: &str) -> &str {
+    if name.starts_with("nux/") {
+        return name.strip_suffix("/mod.nu").unwrap_or(name);
+    }
     name.rsplit('/').next().unwrap_or(name)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn prelude_modules_are_named_as_they_are_used() {
+        assert_eq!(short_name("nux/git/mod.nu"), "nux/git");
+        assert_eq!(short_name("nux/browser/session/mod.nu"), "nux/browser/session");
+        assert_eq!(short_name("/home/someone/tools/check.nu"), "check.nu");
+    }
 
     #[test]
     fn completed_shows_output_like_a_shell() {

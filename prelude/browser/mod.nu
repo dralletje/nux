@@ -4,8 +4,8 @@
 # A module: `use browser` gives `browser <operation>` (main, below) and `browser do { ... }`
 # (do.nu), and nothing else. The prelude does that for every call.
 
-use session.nu browser-tool
-export use do.nu
+use nux/browser/session browser-tool
+export use nux/browser/do
 
 # Do one thing in a browser session and get the outcome as data.
 #

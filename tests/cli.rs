@@ -149,7 +149,7 @@ fn the_prelude_comes_from_the_binary() {
     // The prelude's modules can be loaded by name, also the ones in a folder of their own.
     let run = nux("use nux/browser; scope commands | where name == 'browser do' | length");
     assert_eq!((run.status, run.stdout.as_str()), (0, "1\n"), "{}{}", run.stdout, run.stderr);
-    let run = nux("try-nu 'use nux/typescript.nu; \"a.ts(1,2): error TS1: x\" | typescript from tsc | get code.0' | get value");
+    let run = nux("try-nu 'use nux/typescript;\"a.ts(1,2): error TS1: x\" | typescript from tsc | get code.0' | get value");
     assert_eq!((run.status, run.stdout.as_str()), (0, "TS1\n"), "{}{}", run.stdout, run.stderr);
 }
 
