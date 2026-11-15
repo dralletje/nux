@@ -11,6 +11,7 @@
 //!
 //! A helper should only speak when it is sure; a wrong hint costs more than no hint.
 
+mod exit;
 mod flags;
 mod glob;
 mod interpolation;
@@ -25,7 +26,7 @@ use crate::format::{CODE_FILE, Sources};
 pub use preview::{large_text, large_value};
 
 /// The helpers that give hints for errors, asked in this order.
-const ERROR_HELPERS: &[fn(&ErrorContext) -> Option<String>] = &[flags::hint, shell::hint, glob::hint, interpolation::hint];
+const ERROR_HELPERS: &[fn(&ErrorContext) -> Option<String>] = &[flags::hint, shell::hint, glob::hint, interpolation::hint, exit::hint];
 
 /// The error as Nushell made it, for helpers that need its fields.
 pub enum Raw<'a> {

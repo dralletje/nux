@@ -98,6 +98,22 @@ fn an_earlier_command_that_succeeds_shows_only_its_stderr() {
     assert_eq!((run.status, run.stdout.as_str()), (0, "stderr (^sh -c 'echo hidden; echo seen >&2'): seen\n42\n"));
 }
 
+/// An external that fails inside a def, its output going on into the pipeline: the call fails
+/// (it used to succeed), with the value the pipeline still gave. Into a value (`let x = (b)`)
+/// Nushell drops the output: a hint says how to keep it.
+#[test]
+fn a_failing_external_inside_a_def_fails_the_call() {
+    let def = "def b [] { ^sh -c 'echo out-text; exit 3' }\n";
+    let run = nux(&[], &format!("{def}b | lines"));
+    assert_eq!(run.status, 1, "{}", run.stdout);
+    assert!(run.stdout.contains("[out-text]") && run.stdout.contains("exited with code 3"), "{}", run.stdout);
+    let run = nux(&[], &format!("{def}let x = (b)\n$x"));
+    assert_eq!(run.status, 1, "{}", run.stdout);
+    assert!(run.stdout.contains("| complete"), "{}", run.stdout);
+    let run = nux(&[], "def b [] { ^sh -c 'echo fine' }\nb | lines");
+    assert_eq!((run.status, run.stdout.as_str()), (0, "[fine]\n"), "{}", run.stderr);
+}
+
 #[test]
 fn errors_point_at_the_code() {
     let run = nux(&[], "let a = 1\nopen /nope.json");

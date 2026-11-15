@@ -8,10 +8,11 @@ use std::{
 
 use nu_engine::{convert_env_values, eval_block};
 use nu_protocol::{
-    Config, IntoValue, PipelineData, ShellError, Signals, Span, Type, UseAnsiColoring, Value, VarId,
+    Config, IntoValue, PipelineData, PipelineExecutionData, ShellError, Signals, Span, Type, UseAnsiColoring, Value, VarId,
     ast::Block,
     debugger::WithoutDebug,
     engine::{EngineState, Stack, StateDelta, StateWorkingSet},
+    process::check_exit_status_future,
     record,
 };
 
@@ -167,15 +168,17 @@ impl Nu {
         Failure { code: format::error_code(error), record, text }
     }
 
-    fn run_block(&mut self, block: &Block, delta: StateDelta, input: PipelineData) -> Result<PipelineData, ShellError> {
+    /// The block's result, with the exit statuses of the external commands in its last pipeline
+    /// (`exit`): check those only after the result has been read (`evaluated`), as `nu` does,
+    /// or a command that fills its pipe never exits.
+    fn run_block(&mut self, block: &Block, delta: StateDelta, input: PipelineData) -> Result<PipelineExecutionData, ShellError> {
         self.engine.merge_delta(delta)?;
-        let data = eval_block::<WithoutDebug>(&self.engine, &mut self.stack, block, input)?;
-        Ok(data.body)
+        eval_block::<WithoutDebug>(&self.engine, &mut self.stack, block, input)
     }
 
     fn run_source(&mut self, name: &str, source: &str) -> Result<PipelineData, Failure> {
         let (block, delta, _) = self.parse(name, source)?;
-        self.run_block(&block, delta, PipelineData::empty()).map_err(|e| self.shell_failure(&e))
+        self.run_block(&block, delta, PipelineData::empty()).map(|data| data.body).map_err(|e| self.shell_failure(&e))
     }
 
     /// Run an agent's code the way nux promises (see `nux help`): external commands at the top
@@ -196,12 +199,27 @@ impl Nu {
         let failed = |nu: &Self, error: &ShellError| {
             Stopped::Failed(nu.failure(Raw::Shell(error), &format::AsGiven { engine: &nu.engine, code, insertions: &insertions }))
         };
-        let body = match self.run_block(&block, delta, input) {
-            Ok(body) => body,
+        let data = match self.run_block(&block, delta, input) {
+            Ok(data) => data,
             Err(ShellError::Exit { code, .. }) => return Err(Stopped::Exit(code)),
             Err(error) => return Err(failed(self, &error)),
         };
-        self.evaluated(body, last_command).map_err(|e| failed(self, &e))
+        let evaluated = self.evaluated(data.body, last_command).map_err(|e| failed(self, &e))?;
+        // An external command earlier in the last pipeline (`b | lines`, with `b` a def that
+        // runs one) that failed: its failure, after the value it led to.
+        match check_exit_status_future(data.exit) {
+            Ok(()) => Ok(evaluated),
+            Err(error) => {
+                let Stopped::Failed(mut failure) = failed(self, &error) else { unreachable!() };
+                if let Evaluated::Value(value) = &evaluated
+                    && !matches!(value, Value::Nothing { .. })
+                {
+                    let shown = self.to_nuon(value);
+                    failure.text = format!("What the pipeline gave before that:\n{shown}\n{}", failure.text);
+                }
+                Err(Stopped::Failed(failure))
+            }
+        }
     }
 
     fn evaluated(&self, body: PipelineData, last_command: Option<String>) -> Result<Evaluated, ShellError> {
