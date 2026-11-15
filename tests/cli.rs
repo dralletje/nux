@@ -246,6 +246,19 @@ fn git_diff_tells_ranges_from_paths() {
     assert_eq!(run.stdout, "[[path,added];[\"README.md\",1]]\n", "{}{}", run.stdout, run.stderr);
 }
 
+/// `git diff --lines` and `git hunks` read paths from the diff's headers; git's config must
+/// not change those (`diff.noprefix` made `README.md` into `ADME.md`).
+#[test]
+fn git_diff_paths_do_not_depend_on_git_config() {
+    let repo = git_repo("git-noprefix");
+    let status = Command::new("git").args(["config", "diff.noprefix", "true"]).current_dir(&repo).status().unwrap();
+    assert!(status.success());
+    let run = nux_in(&repo, "git diff --lines README.md | get path | uniq | str join ' '");
+    assert_eq!(run.stdout, "README.md\n", "{}{}", run.stdout, run.stderr);
+    let run = nux_in(&repo, "git diff | where path == README.md | git hunks | get path | str join ' '");
+    assert_eq!(run.stdout, "README.md\n", "{}{}", run.stdout, run.stderr);
+}
+
 /// Ranges into `py` and `js`: counting down and in steps too (Nushell writes those as
 /// `start..next..end`), with or without the end itself.
 #[test]

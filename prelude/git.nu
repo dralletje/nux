@@ -77,6 +77,10 @@ def run-git [arguments: list<string>]: nothing -> string {
 
 const STATES = {M: modified, A: added, D: deleted, R: renamed, C: copied, U: unmerged, T: "type changed"}
 
+# The `a/` and `b/` in a diff's `--- a/path` and `+++ b/path`, which `parse-hunks` takes off.
+# Given every time: git's config can change them (`diff.noprefix`, `diff.mnemonicPrefix`).
+const PREFIXES = [--src-prefix=a/ --dst-prefix=b/]
+
 # Paths in git's output are from the repository's root; ours are from the current directory,
 # like every other path in nux (`open`, `ls`, `git add`). `--relative` would also
 # leave out what is outside the current directory, so the conversion is done here.
@@ -182,8 +186,9 @@ export def status []: nothing -> table {
     let staged = ($entry | str substring 0..<1)
     let unstaged = ($entry | str substring 1..<2)
     mut from: any = null
-    # A rename or copy is followed by an entry of its own with the old path.
-    if $staged in [R C] {
+    # A rename or copy is followed by an entry of its own with the old path, staged or not
+    # (an unstaged one: a file added with `git add -N`, then renamed, in some git versions).
+    if $staged in [R C] or $unstaged in [R C] {
       $index += 1
       $from = ($entries | get $index | from-here $here)
     }
@@ -347,7 +352,7 @@ export def diff [
       | insert versions $versions
     )
   }
-  let output = (run-git ([diff --no-color --no-ext-diff --no-renames $"--unified=($context | default 0)"] ++ (versions-arguments $versions) ++ [--] ++ $paths))
+  let output = (run-git ([diff --no-color --no-ext-diff --no-renames ...$PREFIXES $"--unified=($context | default 0)"] ++ (versions-arguments $versions) ++ [--] ++ $paths))
   parse-hunks $output $here | each {|hunk|
     $hunk.lines | each {|line|
       {path: $hunk.path, kind: $line.kind, old: $line.old, new: $line.new, text: $line.text, hunk: $hunk.hunk, at: $hunk.at, versions: $versions}
@@ -396,7 +401,7 @@ export def hunks [
     let wanted = $group.rows
     let paths = ($wanted | get path | uniq)
     let output = (run-git (
-      [diff --no-color --no-ext-diff --no-renames $"--unified=($context)"]
+      [diff --no-color --no-ext-diff --no-renames ...$PREFIXES $"--unified=($context)"]
       ++ (versions-arguments $group.versions) ++ [--] ++ ($paths | each {|path| $":\(literal\)($path)" })
     ))
     # Line rows pick the hunks they are in; other rows (files, directories) all of theirs.
