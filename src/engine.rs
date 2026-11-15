@@ -79,7 +79,8 @@ enum Stopped {
 
 impl Nu {
     /// A fresh Nushell, as `nu -n` would be, without colors, with the prelude loaded.
-    pub fn start(cwd: &Path, interrupt: Arc<AtomicBool>) -> Result<Nu, String> {
+    /// `include`: more module directories, from `try-nu -I` (joined like PATH).
+    pub fn start(cwd: &Path, interrupt: Arc<AtomicBool>, include: Option<std::ffi::OsString>) -> Result<Nu, String> {
         // TLS for `http` (https://): rustls needs a crypto provider chosen at startup, as `nu`
         // does in its main. Without it every https request fails.
         nu_command::tls::CRYPTO_PROVIDER.default();
@@ -107,7 +108,9 @@ impl Nu {
         let mut stack = Stack::new();
         convert_env_values(&mut engine, &mut stack).map_err(|e| format!("Could not read the environment: {e}"))?;
         engine.add_env_var("NU_VERSION".into(), Value::string(NU_VERSION, Span::unknown()));
-        set_lib_dirs(&mut engine);
+        if let Some(include) = include {
+            set_lib_dirs(&mut engine, &include);
+        }
         nu_std::load_standard_library(&mut engine).map_err(|e| format!("Could not load Nushell's standard library: {e}"))?;
         // For `stor`; failing only makes those commands fail.
         let _ = nu_command::init_shared_memory_db();
@@ -181,21 +184,25 @@ impl Nu {
     fn evaluate(&mut self, code: &str, input: PipelineData) -> Result<Evaluated, Stopped> {
         let (block, delta, base) = self.parse(CODE_FILE, code).map_err(Stopped::Failed)?;
         let checked = with_exit_checks(code, &statements(&block, base), self.prelude_problem.is_none());
-        let (block, delta, last_command) = if checked.changed {
+        let (block, delta, last_command, insertions) = if checked.changed {
             match self.parse(CODE_FILE, &checked.code) {
-                Ok((block, delta, _)) => (block, delta, checked.last_command),
+                Ok((block, delta, _)) => (block, delta, checked.last_command, checked.insertions),
                 // Should the additions ever break the code: run it as it was given.
-                Err(_) => (block, delta, None),
+                Err(_) => (block, delta, None, Vec::new()),
             }
         } else {
-            (block, delta, None)
+            (block, delta, None, Vec::new())
+        };
+        // Errors point at the code as the agent wrote it, not as nux ran it.
+        let failed = |nu: &Self, error: &ShellError| {
+            Stopped::Failed(nu.failure(Raw::Shell(error), &format::AsGiven { engine: &nu.engine, code, insertions: &insertions }))
         };
         let body = match self.run_block(&block, delta, input) {
             Ok(body) => body,
             Err(ShellError::Exit { code, .. }) => return Err(Stopped::Exit(code)),
-            Err(error) => return Err(Stopped::Failed(self.shell_failure(&error))),
+            Err(error) => return Err(failed(self, &error)),
         };
-        self.evaluated(body, last_command).map_err(|e| Stopped::Failed(self.shell_failure(&e)))
+        self.evaluated(body, last_command).map_err(|e| failed(self, &e))
     }
 
     fn evaluated(&self, body: PipelineData, last_command: Option<String>) -> Result<Evaluated, ShellError> {
@@ -405,9 +412,8 @@ const NU_VERSION: &str = "0.117.0";
 
 /// `NU_LIB_DIRS`, where `use` and `source` look for modules: the directories `try-nu -I`
 /// passed, as the environment variable and as the constant `$NU_LIB_DIRS` (like `nu -I`).
-fn set_lib_dirs(engine: &mut EngineState) {
-    let Some(include) = std::env::var_os(commands::try_nu::CHILD_INCLUDE) else { return };
-    let dirs: Vec<Value> = std::env::split_paths(&include)
+fn set_lib_dirs(engine: &mut EngineState, include: &std::ffi::OsStr) {
+    let dirs: Vec<Value> = std::env::split_paths(include)
         .map(|dir| Value::string(dir.to_string_lossy(), Span::unknown()))
         .collect();
     engine.add_env_var("NU_LIB_DIRS".into(), Value::list(dirs.clone(), Span::unknown()));

@@ -61,8 +61,8 @@ pub fn error_hints(raw: &Raw, sources: &dyn Sources, engine: &EngineState) -> St
     let label = error.labels().and_then(|mut labels| labels.next());
     let (near, line) = match label.as_ref().and_then(|label| sources.file_of(label.offset()).map(|file| (label, file))) {
         Some((label, file)) if file.name == CODE_FILE => {
-            let at = (label.offset() - file.start).min(file.content.len());
-            let end = (at + label.len()).min(file.content.len());
+            let at = file.local(label.offset());
+            let end = file.local(label.offset() + label.len()).max(at);
             let line_start = file.content[..at].iter().rposition(|b| *b == b'\n').map_or(0, |i| i + 1);
             let line_end = file.content[at..].iter().position(|b| *b == b'\n').map_or(file.content.len(), |i| at + i);
             (

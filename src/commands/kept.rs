@@ -49,13 +49,24 @@ pub fn keep(engine: &EngineState, name: &str, value: &Value) -> Result<(), Strin
 pub fn keep_result(engine: &EngineState, value: &Value) -> Option<String> {
     let text = nuon(engine, value).ok()?;
     std::fs::create_dir_all(dir()).ok()?;
-    // `create_new`: two calls at the same time cannot take the same number.
-    (1..10_000).find_map(|n| {
+    // `create_new`: two calls at the same time cannot take the same number. A number that
+    // is taken means: try the next one. Any other failure (a full disk) ends it, and leaves
+    // no file behind.
+    for n in 1..10_000 {
         let name = format!("result-{n}");
-        let file = std::fs::OpenOptions::new().write(true).create_new(true).open(path_of(&name)).ok()?;
-        std::io::Write::write_all(&mut &file, text.as_bytes()).ok()?;
-        Some(name)
-    })
+        let path = path_of(&name);
+        let file = match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(file) => file,
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(_) => return None,
+        };
+        if std::io::Write::write_all(&mut &file, text.as_bytes()).is_err() {
+            let _ = std::fs::remove_file(&path);
+            return None;
+        }
+        return Some(name);
+    }
+    None
 }
 
 /// Keep the variables of a call that failed; says what was kept, for under the error.

@@ -10,7 +10,9 @@
 //! file instead of printing it (see [`CHILD_RESULT`]). What it prints is the `printed` field.
 
 use std::{
+    ffi::OsString,
     io::Write,
+    path::PathBuf,
     process::{Command as Process, Stdio},
 };
 
@@ -25,6 +27,28 @@ pub const CHILD_RESULT: &str = "NUX_TRY_RESULT";
 pub const CHILD_INPUT: &str = "NUX_TRY_INPUT";
 /// Set for a child: more directories for `use` and `source` (`NU_LIB_DIRS`), joined by `:`.
 pub const CHILD_INCLUDE: &str = "NUX_TRY_INCLUDE";
+
+/// What a child of `try-nu` was told.
+pub struct ChildSettings {
+    pub result: PathBuf,
+    pub input: Option<PathBuf>,
+    pub include: Option<OsString>,
+}
+
+/// The settings of a `try-nu` child, taken OUT of the environment: whatever this nux
+/// starts (another nux, a nested `try-nu`) must not take them for its own. None when this
+/// nux is not a child. Call it first thing in `main`: removing environment variables is
+/// only sound while the process has a single thread.
+pub fn take_child_settings() -> Option<ChildSettings> {
+    let result = std::env::var_os(CHILD_RESULT);
+    let input = std::env::var_os(CHILD_INPUT);
+    let include = std::env::var_os(CHILD_INCLUDE);
+    for name in [CHILD_RESULT, CHILD_INPUT, CHILD_INCLUDE] {
+        // SAFETY: called before any other thread exists (see above).
+        unsafe { std::env::remove_var(name) };
+    }
+    Some(ChildSettings { result: result?.into(), input: input.map(PathBuf::from), include })
+}
 
 #[derive(Clone)]
 pub struct TryNu;

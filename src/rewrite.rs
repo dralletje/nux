@@ -63,13 +63,17 @@ pub struct Checked {
     pub last_is_external: bool,
     /// The last command as shown in messages, when it is external.
     pub last_command: Option<String>,
+    /// What was added: (position in the code as given, length), in order. To show errors at
+    /// their place in the code as given (`format::SourceFile::local`).
+    pub insertions: Vec<(usize, usize)>,
 }
 
 /// Add `| complete` to the code's top-level external commands: the last statement gets just
 /// that (its record is the call's value), an earlier one also gets `| check-exit '<command>'`
 /// (only when the prelude, which has `check-exit`, is loaded).
 pub fn with_exit_checks(code: &str, statements: &[Statement], check_earlier: bool) -> Checked {
-    let unchanged = || Checked { code: code.to_string(), changed: false, last_is_external: false, last_command: None };
+    let unchanged =
+        || Checked { code: code.to_string(), changed: false, last_is_external: false, last_command: None, insertions: Vec::new() };
     let bytes = code.as_bytes();
     let mut previous_end = 0;
     for statement in statements {
@@ -89,6 +93,7 @@ pub fn with_exit_checks(code: &str, statements: &[Statement], check_earlier: boo
     let mut changed = false;
     let mut last_is_external = false;
     let mut last_command = None;
+    let mut insertions = Vec::new();
     for (index, statement) in statements.iter().enumerate() {
         if !statement.external || statement.redirected {
             continue;
@@ -99,13 +104,15 @@ pub fn with_exit_checks(code: &str, statements: &[Statement], check_earlier: boo
         }
         let shown = shorten(&code[statement.start..statement.end]);
         out.push_str(&code[position..statement.end]);
-        if is_last {
-            out.push_str(" | complete");
+        let added = if is_last {
             last_is_external = true;
             last_command = Some(shown);
+            " | complete".to_string()
         } else {
-            out.push_str(&format!(" | complete | {CHECK_EXIT} {}", nu_raw_string(&shown)));
-        }
+            format!(" | complete | {CHECK_EXIT} {}", nu_raw_string(&shown))
+        };
+        insertions.push((statement.end, added.len()));
+        out.push_str(&added);
         position = statement.end;
         changed = true;
     }
@@ -113,7 +120,7 @@ pub fn with_exit_checks(code: &str, statements: &[Statement], check_earlier: boo
         return unchanged();
     }
     out.push_str(&code[position..]);
-    Checked { code: out, changed, last_is_external, last_command }
+    Checked { code: out, changed, last_is_external, last_command, insertions }
 }
 
 /// A command as shown in messages: on one line, at most 60 characters.
@@ -167,6 +174,8 @@ mod tests {
                 changed: true,
                 last_is_external: true,
                 last_command: Some("git push".into()),
+                // " | complete | check-exit r#'git add -A'#" and " | complete"
+                insertions: vec![(20, 40), (29, 11)],
             }
         );
         // Without the prelude there is no check-exit: only the last one is completed.

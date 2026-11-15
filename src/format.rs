@@ -63,10 +63,34 @@ pub fn format_completed(
 /// Where code came from, to say where in it something went wrong.
 pub struct SourceFile<'a> {
     pub name: &'a str,
+    /// The text to show and count lines in: for the agent's code, the code as it was given.
     pub content: &'a [u8],
     /// Where the file starts in Nushell's global span coordinates.
     pub start: usize,
-    pub end: usize,
+    /// What nux added to the code before running it (see `rewrite`): (position in the code
+    /// as given, length). Nushell's spans count those additions; `local` takes them out.
+    pub insertions: &'a [(usize, usize)],
+}
+
+impl SourceFile<'_> {
+    /// The position in `content` of a global offset. An offset inside an addition of nux's
+    /// becomes the place it was added at.
+    pub fn local(&self, offset: usize) -> usize {
+        let mut position = offset.saturating_sub(self.start);
+        let mut added = 0;
+        for (at, length) in self.insertions {
+            let starts = at + added;
+            if position < starts {
+                break;
+            }
+            if position < starts + length {
+                position = starts;
+                break;
+            }
+            added += length;
+        }
+        (position - added).min(self.content.len())
+    }
 }
 
 /// The file a span is in, and its contents. Implemented for an engine and a working set.
@@ -74,25 +98,39 @@ pub trait Sources {
     fn file_of(&self, offset: usize) -> Option<SourceFile<'_>>;
 }
 
+fn file_in<'a>(files: impl Iterator<Item = &'a nu_protocol::engine::CachedFile>, offset: usize) -> Option<SourceFile<'a>> {
+    files
+        .filter(|f| f.covered_span.start <= offset && offset < f.covered_span.end.max(f.covered_span.start + 1))
+        .map(|f| SourceFile { name: &f.name, content: &f.content, start: f.covered_span.start, insertions: &[] })
+        .next()
+}
+
 impl Sources for nu_protocol::engine::EngineState {
     fn file_of(&self, offset: usize) -> Option<SourceFile<'_>> {
-        self.files().find(|f| f.covered_span.start <= offset && offset < f.covered_span.end.max(f.covered_span.start + 1)).map(|f| SourceFile {
-            name: &f.name,
-            content: &f.content,
-            start: f.covered_span.start,
-            end: f.covered_span.end,
-        })
+        file_in(self.files(), offset)
     }
 }
 
 impl Sources for nu_protocol::engine::StateWorkingSet<'_> {
     fn file_of(&self, offset: usize) -> Option<SourceFile<'_>> {
-        self.files().find(|f| f.covered_span.start <= offset && offset < f.covered_span.end.max(f.covered_span.start + 1)).map(|f| SourceFile {
-            name: &f.name,
-            content: &f.content,
-            start: f.covered_span.start,
-            end: f.covered_span.end,
-        })
+        file_in(self.files(), offset)
+    }
+}
+
+/// The engine's files, with the agent's code shown as it was given rather than as nux ran it.
+pub struct AsGiven<'a> {
+    pub engine: &'a nu_protocol::engine::EngineState,
+    pub code: &'a str,
+    pub insertions: &'a [(usize, usize)],
+}
+
+impl Sources for AsGiven<'_> {
+    fn file_of(&self, offset: usize) -> Option<SourceFile<'_>> {
+        let file = self.engine.file_of(offset)?;
+        if file.name != CODE_FILE {
+            return Some(file);
+        }
+        Some(SourceFile { content: self.code.as_bytes(), insertions: self.insertions, ..file })
     }
 }
 
@@ -140,10 +178,10 @@ fn describe(error: &dyn Diagnostic, sources: &dyn Sources, indent: &str, lines: 
             }
             continue;
         };
-        let at = offset - file.start;
+        let at = file.local(offset);
         let (line, column) = line_and_column(&file, offset);
-        let end = (offset + label.len()).min(file.end).saturating_sub(file.start).min(file.content.len());
-        let span_text = String::from_utf8_lossy(&file.content[at.min(end)..end]).to_string();
+        let end = file.local(offset + label.len()).max(at);
+        let span_text = String::from_utf8_lossy(&file.content[at..end]).trim_end().to_string();
         let near = if span_text.is_empty() {
             String::new()
         } else if span_text.chars().count() > 80 {
@@ -165,8 +203,7 @@ fn describe(error: &dyn Diagnostic, sources: &dyn Sources, indent: &str, lines: 
 
 /// Line and column (from 1) of a global offset in a file.
 fn line_and_column(file: &SourceFile, offset: usize) -> (usize, usize) {
-    let at = offset.saturating_sub(file.start).min(file.content.len());
-    let before = &file.content[..at];
+    let before = &file.content[..file.local(offset)];
     let line = before.iter().filter(|b| **b == b'\n').count() + 1;
     let line_start = before.iter().rposition(|b| *b == b'\n').map_or(0, |i| i + 1);
     (line, String::from_utf8_lossy(&before[line_start..]).chars().count() + 1)

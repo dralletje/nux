@@ -226,6 +226,44 @@ fn try_nu_gives_the_outcome_as_data() {
     assert_eq!(run.stdout, "3\n", "{}", run.stdout);
 }
 
+/// A try-nu child must not pass on what made it a child: a nux started inside it, or a nested
+/// try-nu without input, would take it for its own.
+#[test]
+fn try_nu_children_do_not_leak_their_settings() {
+    let me = env!("CARGO_BIN_EXE_nux");
+    // (The last command's output is in value.stdout, as for any external command at the end.)
+    let run = nux(&[], &format!("try-nu '\"1 + 1\" | ^{me}' | get value.stdout"));
+    assert_eq!(run.stdout, "2\n", "{}{}", run.stdout, run.stderr);
+    // The inner try-nu gets null as input, not the outer [1 2].
+    let run = nux(&[], "[1 2] | try-nu 'null | try-nu \"$in\" | get value' | get value | describe");
+    assert_eq!(run.stdout, "nothing\n", "{}{}", run.stdout, run.stderr);
+}
+
+/// What nux adds after an external command must not move the columns of errors after it.
+#[test]
+fn errors_after_an_external_command_have_the_right_column() {
+    let run = nux(&[], "^true; open /nope.json");
+    assert!(run.stdout.contains("line 1, column 13   near `/nope.json`"), "{}", run.stdout);
+    let run = nux(&[], "try-nu '^true; ^true; open /nope.json' | get error | select line column");
+    assert_eq!(run.stdout, "{line:1,column:20}\n", "{}", run.stdout);
+}
+
+/// A folder others can write in could get a prelude of theirs: refused.
+#[test]
+fn a_nux_dir_others_can_write_in_is_refused() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = scratch().join(format!("open-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o777)).unwrap();
+    let run = nux_with(&[], "1", &[("NUX_DIR", dir.as_path())]);
+    assert_eq!(run.status, 1);
+    assert!(run.stderr.contains("others can write in it"), "{}", run.stderr);
+    // A folder nux makes itself is owner-only.
+    let made = scratch().join(format!("made-{}", std::process::id()));
+    assert_eq!(nux_with(&[], "1", &[("NUX_DIR", made.as_path())]).stdout, "1\n");
+    assert_eq!(std::fs::metadata(&made).unwrap().permissions().mode() & 0o777, 0o700);
+}
+
 #[test]
 fn try_nu_finds_modules_with_include() {
     let dir = scratch().join(format!("modules-{}", std::process::id()));

@@ -87,6 +87,8 @@ fn record_signals(interrupt: Arc<AtomicBool>) {
 }
 
 fn main() {
+    // First, while nux has one thread (it removes environment variables).
+    let try_nu_child = commands::try_nu::take_child_settings();
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let cwd = std::env::current_dir().unwrap_or_else(|_| "/".into());
     let cwd_text = cwd.to_string_lossy().into_owned();
@@ -122,7 +124,7 @@ fn main() {
         Some(c @ ("help" | "find" | "guide")) => c,
         Some(_) => "invalid",
     };
-    let kind = if kind == "eval" && std::env::var_os(commands::try_nu::CHILD_RESULT).is_some() { "try-nu" } else { kind };
+    let kind = if kind == "eval" && try_nu_child.is_some() { "try-nu" } else { kind };
     usage_log::start(usage_log::Start {
         kind,
         argv: &argv,
@@ -153,12 +155,16 @@ fn main() {
         fail(Outcome::UsageError, "Usage: nux find <word>");
     }
 
-    let mut nu = match Nu::start(&cwd, interrupt) {
+    if let Err(problem) = paths::check_nux_dir() {
+        fail(Outcome::StartFailed, problem);
+    }
+    let include = try_nu_child.as_ref().and_then(|child| child.include.clone());
+    let mut nu = match Nu::start(&cwd, interrupt, include) {
         Ok(nu) => nu,
         Err(message) => fail(Outcome::StartFailed, message),
     };
-    if let Some(result_file) = std::env::var_os(commands::try_nu::CHILD_RESULT) {
-        run_as_try_nu_child(&mut nu, &code, result_file.into());
+    if let Some(child) = try_nu_child {
+        run_as_try_nu_child(&mut nu, &code, child);
     }
     let mut reply = match command {
         Some("help") => nu.help(&words),
@@ -174,8 +180,10 @@ fn main() {
 
 /// A child of `try-nu`: write `{value, error}` to the file it named, as NUON, and print only
 /// what the code itself prints.
-fn run_as_try_nu_child(nu: &mut Nu, code: &str, result_file: std::path::PathBuf) -> ! {
-    let input = std::env::var_os(commands::try_nu::CHILD_INPUT)
+fn run_as_try_nu_child(nu: &mut Nu, code: &str, child: commands::try_nu::ChildSettings) -> ! {
+    let result_file = child.result;
+    let input = child
+        .input
         .and_then(|file| std::fs::read_to_string(file).ok())
         .and_then(|text| nuon::from_nuon(&text, None).ok())
         .unwrap_or_else(|| nu_protocol::Value::nothing(nu_protocol::Span::unknown()));
