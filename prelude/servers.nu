@@ -9,7 +9,14 @@
 @search-terms listening sockets lsof netstat "who uses port"
 @example "Everything that listens" { ports | select port name cwd }
 @example "What is on port 8888" { ports 8888 }
-@example "Free a port: stop whatever listens on it" { ports 8888 | get pid | uniq | each {|pid| kill $pid } }
+@example "Free a port: stop whatever listens on it" {
+  ports 8888
+  | get pid
+  | uniq
+  | each {|pid|
+      kill $pid
+    }
+}
 export def ports [
   port?: int # Only this port
 ]: nothing -> table {

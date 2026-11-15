@@ -115,7 +115,14 @@ def from-here [here: list<string>]: string -> string {
 @example "What changed this week" { git log --since "1 week ago" | select short date author subject }
 @example "Commits that touched a directory, with the files of each" { git log --files src | select short subject files }
 @example "What a branch adds to main" { git log --range main..HEAD }
-@example "Who commits most" { git log | group-by author --to-table | each {|g| {author: $g.author, commits: ($g.items | length)} } | sort-by commits --reverse }
+@example "Who commits most" {
+  git log
+  | group-by author --to-table
+  | each {|group|
+      {author: $group.author, commits: ($group.items | length)}
+    }
+  | sort-by commits --reverse
+}
 export def log [
   ...paths: string       # Only commits that touch these files or directories
   --max (-n): int        # At most this many commits (default: all)

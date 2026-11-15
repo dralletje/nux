@@ -30,7 +30,13 @@ export use do.nu
 # read: use it from the shell. This command is for filtering and for many pages at once.
 @search-terms playwright chromium page web
 @example "Open a page and look at what failed" { browser navigate http://localhost:8888/ | select url status failed_requests console }
-@example "Check a list of pages" { [/ /about /contact] | each {|path| browser navigate $"http://localhost:8888($path)" | select url status title failed_requests } }
+@example "Check a list of pages" {
+  [/ /about /contact]
+  | each {|path|
+      browser navigate $"http://localhost:8888($path)"
+      | select url status title failed_requests
+    }
+}
 @example "The links on the page" { browser status | get elements | where role == link | select ref name url }
 @example "Requests that did not succeed" { browser network_requests | where status >= 400 }
 @example "A value from the page" { browser evaluate '() => document.querySelectorAll("img").length' }

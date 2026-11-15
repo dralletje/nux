@@ -11,9 +11,32 @@
 # conversation, cwd, argv, pid, id; and, filled only by the TypeScript nux (null for the
 # Rust one): session, session_named, timeout_seconds, json.
 @example "what failed today, and why it was run" { nux-log | where outcome not-in [ok unfinished] | select at outcome reason code text }
-@example "which commands agents look up" { nux-log --since 7day | where kind in [help find] | get argv | each { str join " " } | uniq --count | sort-by count -r }
-@example "how often a reason is given" { nux-log --since 7day | where kind == eval | each { $in.reason != null } | uniq --count }
-@example "the two versions side by side" { nux-log --since 1day | where kind == eval | group-by runner --to-table | each {|g| {runner: $g.runner, calls: ($g.items | length), failed: ($g.items | where outcome not-in [ok unfinished] | length)} } }
+@example "which commands agents look up" {
+  nux-log --since 7day
+  | where kind in [help find]
+  | get argv
+  | each { str join " " }
+  | uniq --count
+  | sort-by count --reverse
+}
+@example "how often a reason is given" {
+  nux-log --since 7day
+  | where kind == eval
+  | each { $in.reason != null }
+  | uniq --count
+}
+@example "the two versions side by side" {
+  nux-log --since 1day
+  | where kind == eval
+  | group-by runner --to-table
+  | each {|group|
+      {
+        runner: $group.runner
+        calls: ($group.items | length)
+        failed: ($group.items | where outcome not-in [ok unfinished] | length)
+      }
+    }
+}
 export def nux-log [
   --since: duration = 1day # how far back to look
   --dir: path              # the log's directory (default: $env.NUX_LOG_DIR, else ~/.local/state/nux/log)

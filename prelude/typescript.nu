@@ -14,7 +14,16 @@
 @search-terms typescript typecheck "type errors" diagnostics tsc
 @example "A project's own check script" { ^pnpm typecheck | complete | get stdout | from tsc }
 @example "A project without one" { ^npx tsc --noEmit | complete | get stdout | from tsc }
-@example "Errors per file" { ^pnpm typecheck | complete | get stdout | from tsc | group-by file --to-table | each {|g| {file: $g.file, errors: ($g.items | length)} } }
+@example "Errors per file" {
+  ^pnpm typecheck
+  | complete
+  | get stdout
+  | from tsc
+  | group-by file --to-table
+  | each {|group|
+      {file: $group.file, errors: ($group.items | length)}
+    }
+}
 export def "from tsc" []: string -> table {
   # `file(line,col): error TS1: ...`, or with --pretty `file:line:col - error TS1: ...`.
   let in_file = '^(?<file>.+?)[(:](?<line>\d+)[,:](?<column>\d+)\)?:? (?:- )?(?<category>error|warning) (?<code>TS\d+): (?<message>.*)$'

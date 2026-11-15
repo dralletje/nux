@@ -17,8 +17,22 @@ use session.nu with-session
 # (`nux help browser`).
 @search-terms playwright chromium page web
 @example "Look at one page" { browser do { browser navigate http://localhost:8888/ | select url status title failed_requests } }
-@example "Check a list of pages with one browser" { [/ /about /contact] | browser do { each {|path| browser navigate $"http://localhost:8888($path)" | select url status title } } }
-@example "Several steps" { browser do { browser navigate http://localhost:8888/login | ignore; browser type 'input[name=email]' me@example.com | ignore; browser click 'button[type=submit]' | get url } }
+@example "Check a list of pages with one browser" {
+  [/ /about /contact]
+  | browser do {
+      each {|path|
+        browser navigate $"http://localhost:8888($path)"
+        | select url status title
+      }
+    }
+}
+@example "Several steps" {
+  browser do {
+    browser navigate http://localhost:8888/login | ignore
+    browser type 'input[name=email]' me@example.com | ignore
+    browser click 'button[type=submit]' | get url
+  }
+}
 export def main [
   body: closure            # What to do with the browser; its parameter is the session name
   --wait: duration = 90sec # How long the browser may take to start

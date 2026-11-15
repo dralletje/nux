@@ -111,9 +111,30 @@ def parse-location []: any -> record {
 # A test run with failures exits with an error code, and Nushell does not pass the output of
 # such a command on to a command like this one; `complete` hands over output and code both.
 @search-terms "test results" "failing tests" "node --test" "node:test" "pnpm test" "npm test"
-@example "Which tests fail, and why" { ^pnpm test | complete | from node-26-test | where status == fail | select name file line error }
-@example "A summary" { ^npm test | complete | from node-26-test | group-by status --to-table | each {|g| {status: $g.status, tests: ($g.items | length)} } }
-@example "The slowest tests" { ^node --test | complete | from node-26-test | sort-by duration --reverse | first 5 | select name duration }
+@example "Which tests fail, and why" {
+  ^pnpm test
+  | complete
+  | from node-26-test
+  | where status == fail
+  | select name file line error
+}
+@example "A summary" {
+  ^npm test
+  | complete
+  | from node-26-test
+  | group-by status --to-table
+  | each {|group|
+      {status: $group.status, tests: ($group.items | length)}
+    }
+}
+@example "The slowest tests" {
+  ^node --test
+  | complete
+  | from node-26-test
+  | sort-by duration --reverse
+  | first 5
+  | select name duration
+}
 export def "from node-26-test" []: any -> table {
   let source = ($in | test-output)
   let text = $source.text
@@ -215,9 +236,29 @@ export def "from node-26-test" []: any -> table {
 # with an error code, and Nushell does not pass the output of such a command on to a command
 # like this one; `complete` hands over output and code both.
 @search-terms "test results" "failing tests" "test anything protocol" "node --test" "node:test" "pnpm test" "npm test"
-@example "Which tests fail, and why" { ^node --test --test-reporter=tap | complete | from tap | where status == fail | select name file line error }
-@example "A package script on Node 20 or newer" { with-env {NODE_OPTIONS: "--test-reporter=tap"} { ^pnpm test | complete } | from tap | where status != pass }
-@example "A summary" { ^node --test --test-reporter=tap | complete | from tap | group-by status --to-table | each {|g| {status: $g.status, tests: ($g.items | length)} } }
+@example "Which tests fail, and why" {
+  ^node --test --test-reporter=tap
+  | complete
+  | from tap
+  | where status == fail
+  | select name file line error
+}
+@example "A package script on Node 20 or newer" {
+  with-env {NODE_OPTIONS: "--test-reporter=tap"} {
+    ^pnpm test | complete
+  }
+  | from tap
+  | where status != pass
+}
+@example "A summary" {
+  ^node --test --test-reporter=tap
+  | complete
+  | from tap
+  | group-by status --to-table
+  | each {|group|
+      {status: $group.status, tests: ($group.items | length)}
+    }
+}
 export def "from tap" []: any -> table {
   let source = ($in | test-output)
   let text = $source.text

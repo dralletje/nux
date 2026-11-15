@@ -79,8 +79,18 @@ export def check-exit [
 @search-terms print log debug tee inspect "intermediate value" peek
 @example "See a value and go on with it" { ls | show | length }
 @example "See a summary, go on with everything" { ls | show { length } | sort-by size }
-@example "Several, with labels to tell them apart" { git log | show --label commits { length } | where author =~ 'Dral' | show --label mine { length } | first 3 }
-@example "As a statement, for a variable" { let rows = (ls); $rows | show { first 2 }; $rows | length }
+@example "Several, with labels to tell them apart" {
+  git log
+  | show --label commits { length }
+  | where author =~ 'Dral'
+  | show --label mine { length }
+  | first 3
+}
+@example "As a statement, for a variable" {
+  let rows = (ls)
+  $rows | show { first 2 }
+  $rows | length
+}
 export def show [
   view?: closure         # What to print of the value (default: the value itself)
   --label (-l): string   # Printed in front, to tell several apart

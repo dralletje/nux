@@ -128,8 +128,15 @@ http get --raw $url | from json                        # opt out of parsing
 work is not trivial.
 
 ```nu
-ls **/*.rs | par-each {|f| open $f.name | lines | length }
-glob **/*.log | par-each --threads 8 {|f| ... }
+ls **/*.rs
+| par-each {|file|
+    open $file.name | lines | length
+  }
+
+glob **/*.log
+| par-each --threads 8 {|file|
+    ...
+  }
 ```
 
 Use plain `each` when order matters or side effects must happen one after another.

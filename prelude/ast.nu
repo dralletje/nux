@@ -70,7 +70,10 @@ def pattern-problem [pattern: string, lang: string, found_nothing: bool]: nothin
 @search-terms ast-grep sg "structural search" codemod refactor "find code" "find calls"
 @example "Calls of a function, with what is passed" { ast-find --lang ts 'fetch($URL, $$$REST)' src | select file line vars }
 @example "Narrow down by what a hole matched" { ast-find -l ts 'console.log($MSG)' | where vars.MSG =~ 'token' | select file line text }
-@example "Preview a rewrite" { ast-find -l js 'assert.equal($A, $B)' test --rewrite 'assert.strictEqual($A, $B)' | select file line text replacement }
+@example "Preview a rewrite" {
+  ast-find -l js 'assert.equal($A, $B)' test --rewrite 'assert.strictEqual($A, $B)'
+  | select file line text replacement
+}
 @example "JSX, in some files only" { ast-find -l tsx '<Button $$$PROPS />' --glob '!*.test.tsx' | get file | uniq }
 @example "Python" { ast-find -l python 'print($$$ARGS)' scripts }
 export def ast-find [
@@ -134,9 +137,19 @@ export def ast-find [
 # a file no longer has a row's `text` at that place (it changed since the search: search
 # again), or when two rows overlap (one match inside another: filter one out).
 @search-terms ast-grep "structural replace" codemod refactor rewrite "apply rewrite"
-@example "Find, look, then change" { let found = (ast-find -l ts 'console.log($$$A)' src --rewrite 'logger.debug($$$A)'); $found | select file line text replacement; $found | ast-apply }
+@example "Find, look, then change" {
+  let found = (ast-find -l ts 'console.log($$$A)' src --rewrite 'logger.debug($$$A)')
+  $found | select file line text replacement
+  $found | ast-apply
+}
 @example "Change only some of the matches" { ast-find -l ts 'foo($A)' --rewrite 'bar($A)' | where file !~ '\.test\.' | ast-apply }
-@example "A replacement computed in Nushell" { ast-find -l ts 't($KEY)' --rewrite 't($KEY)' | update replacement {|row| $"t\(($row.vars.KEY | str lowercase)\)" } | ast-apply }
+@example "A replacement computed in Nushell" {
+  ast-find -l ts 't($KEY)' --rewrite 't($KEY)'
+  | update replacement {|row|
+      $"t\(($row.vars.KEY | str lowercase)\)"
+    }
+  | ast-apply
+}
 export def ast-apply []: table -> table {
   let rows = $in
   if ($rows | is-empty) { return [] }
