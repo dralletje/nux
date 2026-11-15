@@ -14,7 +14,6 @@ average of 10):
   - `git`: 8.6 ms
   - `testing`: 4.1 ms
   - `ast`: 3.1 ms
-  - `browser`: 2.1 ms
   - `usage`: 1.8 ms
   - `edit-file`: 1.5 ms
   - `output`: 0.9 ms
@@ -32,7 +31,7 @@ Before the prelude is loaded, the code is split into words (letters, digits, `_`
 `--show` is not `show` and `^git` is `git`). `prelude.nu` is loaded with its
 `export use nux/<module>` lines left out, except for the modules the words name:
 
-- a module used without `*` (`git`, `browser`, `edit-file`) by its own name;
+- a module used without `*` (`git`, `edit-file`) by its own name;
 - a module used with `*` by the names of its commands, read from its text
   (`export def`/`export alias`, after flags like `--env`; `main` is the module's name;
   `from tsc` is two words in a row);
@@ -82,9 +81,10 @@ Traps found on the way, each a bug at first:
 - Calls inside the prelude's own modules must not count (`git.nu` calls `help commands`,
   which would load everything): blocks whose span is in a file named `nux/...` are skipped
   (`StateWorkingSet::find_file_by_span`).
-- A module's `@example` blocks are parsed when it loads. `browser do { ... }` in an example
-  found the `browser` stub, and a `--wrapped` stub takes no block ("Parse mismatch: expected
-  non-block value: external-argument"). So the stubs must be gone before loading. A plain
+- A module's `@example` blocks are parsed when it loads. An example that passes a block to
+  one of the module's own commands (`<module> do { ... }`) found the module's stub, and a
+  `--wrapped` stub takes no block ("Parse mismatch: expected non-block value:
+  external-argument"). So the stubs must be gone before loading. A plain
   `hide "<stub>"` in the same source did not reach into modules parsed after it;
   `overlay hide` does. Hence the overlays.
 - The check-exit rule from version 1 stays: `nux/output` is always loaded.
@@ -129,7 +129,7 @@ is mostly `Arc`s, so a clone is cheap), find the real declaration there, and run
 same call, pipeline input and stack. Questions to settle first:
 
 - whether the call's arguments (spans and blocks in the original engine) evaluate correctly
-  against the clone, also for closures passed in (`browser do { ... }`, `with-session`);
+  against the clone, also for closures passed in;
 - environment changes made by a command (`def --env`): the stack is shared, so probably fine;
 - caching: the second call of a module's commands in the same process should not parse it
   again (a `OnceLock` in the command, holding the parsed clone, but the engine may have
