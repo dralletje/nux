@@ -264,18 +264,26 @@ fn git_diff_paths_do_not_depend_on_git_config() {
     assert_eq!(run.stdout, "README.md\n", "{}{}", run.stdout, run.stderr);
 }
 
-/// `from tsc` on real tsc output (TypeScript 5, tests/fixtures): plain, as through
-/// `complete`; with --pretty (colors, code excerpts, related locations); and an error about
-/// no file. All give the same rows.
+/// `from tsc` on real tsc output (tests/fixtures/tsc5: TypeScript 5.9.3, tsc7: 7.0.2, the Go
+/// rewrite): plain, as through `complete`; with --pretty (colors, code excerpts, related
+/// locations); an error about no file; and build mode. Plain output is the same in both
+/// versions; --pretty is not (where related locations go, the summary of a build), and both
+/// must give the same rows.
 #[test]
 fn from_tsc_reads_what_tsc_prints() {
-    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    for version in ["tsc5", "tsc7"] {
+        from_tsc_reads(version);
+    }
+}
+
+fn from_tsc_reads(version: &str) {
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(version);
     let rows = |file: &str| {
         let run = nux(&[], &format!("open --raw '{}' | from tsc | to json --raw", fixtures.join(file).display()));
-        assert_eq!(run.status, 0, "{file}: {}{}", run.stdout, run.stderr);
+        assert_eq!(run.status, 0, "{version}/{file}: {}{}", run.stdout, run.stderr);
         serde_json::from_str::<serde_json::Value>(&run.stdout).unwrap()
     };
-    let plain = rows("tsc-plain.txt");
+    let plain = rows("plain.txt");
     assert_eq!(plain.as_array().unwrap().len(), 3);
     assert_eq!(
         plain[0],
@@ -288,10 +296,19 @@ fn from_tsc_reads_what_tsc_prints() {
         "Argument of type '{ a: number; }' is not assignable to parameter of type '{ a: string; }'.\n\
          Types of property 'a' are incompatible.\nType 'number' is not assignable to type 'string'."
     );
-    assert_eq!(rows("tsc-pretty.txt"), plain, "--pretty gives the same rows");
-    let global = rows("tsc-global.txt");
+    assert_eq!(rows("pretty.txt"), plain, "{version}: --pretty gives the same rows");
+    let global = rows("global.txt");
     assert_eq!(global[0]["file"], serde_json::Value::Null);
     assert_eq!(global[0]["code"], "TS5058");
+
+    // Build mode (`tsc -b --force`) over two projects with references, files in
+    // subdirectories. With --pretty, TypeScript 7 ends in an indented summary table
+    // ("Errors  Files"), which is not part of any message.
+    let build = rows("build-plain.txt");
+    let places: Vec<String> =
+        build.as_array().unwrap().iter().map(|row| format!("{}:{} {}", row["file"].as_str().unwrap(), row["line"], row["code"].as_str().unwrap())).collect();
+    assert_eq!(places, ["lib/src/index.ts:1 TS2322", "app/src/main.ts:2 TS2345", "app/src/main.ts:3 TS2322", "app/src/other.ts:1 TS2322"]);
+    assert_eq!(rows("build-pretty.txt"), build, "{version}: --pretty gives the same rows, without the summary");
 }
 
 /// Ranges into `py` and `js`: counting down and in steps too (Nushell writes those as
