@@ -522,6 +522,24 @@ fn bash_habits_get_the_nushell_way() {
     assert_eq!(hint("ls && ls"), "");
 }
 
+/// Text in ( ) inside $"..." runs as code: both errors that gives get a hint that says so.
+#[test]
+fn text_in_parentheses_inside_interpolation_gets_a_hint() {
+    let hint = "Inside $\"...\", text in ( ) is code that runs";
+    // Balanced: `(a root ...)` runs a command `a`.
+    let run = nux(&[], "let t = \"x\"\n$\"Logout in the footer (a root loader says who is admin).($t)\"");
+    assert!(run.stdout.contains("Command `a` not found"), "{}", run.stdout);
+    assert!(run.stdout.contains(hint), "{}", run.stdout);
+    assert!(run.stdout.contains("^git commit -F -"), "{}", run.stdout);
+    // An apostrophe in the parentheses: "Unclosed delimiter", on another line.
+    let run = nux(&[], "let m = $\"line one\n(it's broken) on line two\"\n$m");
+    assert!(run.stdout.contains("nu::parser::unclosed_delimiter"), "{}", run.stdout);
+    assert!(run.stdout.contains(hint), "{}", run.stdout);
+    // An unknown command outside such a string: no hint of this kind.
+    let run = nux(&[], "nonexistent-command-xyz");
+    assert!(!run.stdout.contains(hint), "{}", run.stdout);
+}
+
 /// A glob pattern Nushell's glob refuses: the hint says which part, where Nushell's own
 /// message is only "failed to parse glob expression".
 #[test]

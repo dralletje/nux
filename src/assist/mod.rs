@@ -13,6 +13,7 @@
 
 mod flags;
 mod glob;
+mod interpolation;
 mod preview;
 mod shell;
 
@@ -24,7 +25,7 @@ use crate::format::{CODE_FILE, Sources};
 pub use preview::{large_text, large_value};
 
 /// The helpers that give hints for errors, asked in this order.
-const ERROR_HELPERS: &[fn(&ErrorContext) -> Option<String>] = &[flags::hint, shell::hint, glob::hint];
+const ERROR_HELPERS: &[fn(&ErrorContext) -> Option<String>] = &[flags::hint, shell::hint, glob::hint, interpolation::hint];
 
 /// The error as Nushell made it, for helpers that need its fields.
 pub enum Raw<'a> {
@@ -54,6 +55,10 @@ pub struct ErrorContext<'a> {
     pub near: Option<String>,
     /// The whole line of the agent's code that contains it.
     pub line: Option<String>,
+    /// The agent's code as written, when the error points into it.
+    pub source: Option<String>,
+    /// Where in `source` each of the error's labels points (byte positions), in order.
+    pub places: Vec<usize>,
     /// For looking up commands and their signatures.
     pub engine: &'a EngineState,
 }
@@ -75,7 +80,25 @@ pub fn error_hints(raw: &Raw, sources: &dyn Sources, engine: &EngineState) -> St
         }
         _ => (None, None),
     };
-    let context = ErrorContext { raw, code: error.code().map(|c| c.to_string()), message: error.to_string(), near, line, engine };
+    // All labels that point into the agent's code, as places in it.
+    let mut source = None;
+    let mut places = Vec::new();
+    for label in error.labels().into_iter().flatten() {
+        if let Some(file) = sources.file_of(label.offset()).filter(|file| file.name == CODE_FILE) {
+            places.push(file.local(label.offset()));
+            source.get_or_insert_with(|| String::from_utf8_lossy(file.content).into_owned());
+        }
+    }
+    let context = ErrorContext {
+        raw,
+        code: error.code().map(|c| c.to_string()),
+        message: error.to_string(),
+        near,
+        line,
+        source,
+        places,
+        engine,
+    };
     ERROR_HELPERS
         .iter()
         .filter_map(|helper| helper(&context))

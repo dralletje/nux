@@ -225,12 +225,19 @@ LOOK THINGS UP   (Nushell changes between versions; check before guessing)
 
 GOOD TO KNOW
   - A failed call prints the error with its place in the code and exits with status 1.
-  - External commands get no stdin and no terminal, so nothing interactive (`input`, pagers,
-    editors, password prompts). A server or anything else that keeps running does not
-    belong in a call: the call would not end. Start it as a background command of your
-    shell, then `wait-for` it here.
+  - External commands get no terminal, and no stdin unless you pipe a value into them, so
+    nothing interactive (`input`, pagers, editors, password prompts). A server or anything
+    else that keeps running does not belong in a call: the call would not end. Start it as a
+    background command of your shell, then `wait-for` it here.
+  - In $"..." every ( ) is code that runs, also in what was meant as text: $"Fixed (see
+    notes)" runs a command `see`. For ( ) as text write \( \), or use a raw string, in which
+    nothing runs. Longer text, like a commit message, always as a raw string:
+        let message = r#'Fix the footer
+
+        The cookie was not cleared (fixed). It's set in root.tsx.'#
+        $message | ^git commit -F -
   - `where name =~ 'x'` fails on a row where name is null: `where name != null and name =~ 'x'`.
-  - Nushell's plugins (polars, query, formats, gstat) are not available in this nux.
+  - Plugins registered for `nu` (`plugin list`) work here too; `plugin add` registers one.
 
 MORE
   Every call is recorded, with its code and outcome, in {log_dir};
