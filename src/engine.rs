@@ -1,0 +1,418 @@
+//! Nushell, set up for one call: the engine, the prelude, and running the code.
+
+use std::{
+    collections::HashSet,
+    path::Path,
+    sync::{Arc, atomic::AtomicBool},
+};
+
+use nu_engine::{convert_env_values, eval_block};
+use nu_protocol::{
+    Config, IntoValue, PipelineData, ShellError, Signals, Span, Type, UseAnsiColoring, Value, VarId,
+    ast::Block,
+    debugger::WithoutDebug,
+    engine::{EngineState, Stack, StateDelta, StateWorkingSet},
+    record,
+};
+
+use crate::{
+    assist::{self, Raw},
+    commands::{self, kept},
+    format::{self, CODE_FILE, Sources, format_completed, without_final_newline},
+    prelude,
+    rewrite::{nu_raw_string, statements, with_exit_checks},
+    usage_log::Outcome,
+};
+
+/// Results longer than this (as printed) are kept instead of printed. The same limit
+/// Nushell's MCP server uses.
+const OUTPUT_LIMIT: usize = 10 * 1024;
+
+/// What a call comes to: what to print, and how it ended.
+pub struct Reply {
+    pub ok: bool,
+    pub text: String,
+    pub outcome: Outcome,
+    pub error_code: Option<String>,
+    /// The process's exit status: 0, 1, or what `exit` asked for.
+    pub exit_code: i32,
+}
+
+impl Reply {
+    pub fn ok(text: impl Into<String>) -> Self {
+        Reply { ok: true, text: text.into(), outcome: Outcome::Ok, error_code: None, exit_code: 0 }
+    }
+    pub fn failed(outcome: Outcome, text: impl Into<String>, error_code: Option<String>) -> Self {
+        Reply { ok: false, text: text.into(), outcome, error_code, exit_code: 1 }
+    }
+}
+
+pub struct Nu {
+    engine: EngineState,
+    stack: Stack,
+    /// Set when the prelude did not load: nux's own commands are missing then.
+    pub prelude_problem: Option<String>,
+}
+
+/// An error, already put into words (a parse error refers to code that is not in the engine
+/// yet, so it has to be described while its working set is still there), and as data.
+struct Failure {
+    text: String,
+    code: Option<String>,
+    record: Value,
+}
+
+/// How code that ran came out.
+enum Evaluated {
+    Value(Value),
+    /// The last statement was an external command: what it wrote, and how it exited.
+    /// `command`: the command as shown in messages, when nux completed it.
+    Completed { stdout: String, stderr: String, exit_code: i64, command: Option<String> },
+}
+
+/// How code that did not come to a value stopped.
+enum Stopped {
+    Failed(Failure),
+    /// `exit <code>`
+    Exit(i32),
+}
+
+impl Nu {
+    /// A fresh Nushell, as `nu -n` would be, without colors, with the prelude loaded.
+    pub fn start(cwd: &Path, interrupt: Arc<AtomicBool>) -> Result<Nu, String> {
+        let mut engine = nu_cmd_lang::create_default_context();
+        engine = nu_command::add_shell_command_context(engine);
+        engine = nu_cmd_extra::add_extra_command_context(engine);
+        engine = nu_cli::add_cli_context(engine);
+        // `plugin add`, `plugin list`, ...: plugins can be managed without `nu`.
+        engine = nu_cmd_plugin::add_plugin_command_context(engine);
+        engine = commands::add(engine);
+
+        // Nushell's own config paths, found as `nu` finds them. nux reads none of the config
+        // files, but shares `nu`'s plugin registry (`$nu.plugin-path`).
+        if let Ok((config_dirs, _warnings)) = nu_config::resolve_paths(&nu_config::SystemEnv, &Default::default()) {
+            engine.config_dirs = config_dirs;
+        }
+
+        let mut config = Config::default();
+        config.use_ansi_coloring = UseAnsiColoring::False;
+        engine.add_env_var("config".into(), config.clone().into_value(Span::unknown()));
+        engine.set_config(config);
+        engine.add_env_var("ENV_CONVERSIONS".into(), Value::record(record! {}, Span::unknown()));
+        nu_cli::gather_parent_env_vars(&mut engine, cwd);
+
+        let mut stack = Stack::new();
+        convert_env_values(&mut engine, &mut stack).map_err(|e| format!("Could not read the environment: {e}"))?;
+        engine.add_env_var("NU_VERSION".into(), Value::string(NU_VERSION, Span::unknown()));
+        set_lib_dirs(&mut engine);
+        nu_std::load_standard_library(&mut engine).map_err(|e| format!("Could not load Nushell's standard library: {e}"))?;
+        // For `stor`; failing only makes those commands fail.
+        let _ = nu_command::init_shared_memory_db();
+        engine.generate_nu_constant();
+        // The registered plugins: only their signatures are read here; a plugin's process
+        // starts when a call first uses one of its commands.
+        nu_cli::read_plugin_file(&mut engine, None);
+        engine.set_signals(Signals::new(interrupt));
+        engine.finish_startup();
+
+        // External commands at the end of a pipeline hand their output to nux, instead of
+        // writing to the terminal.
+        let mut nu = Nu { engine, stack: stack.capture_all(), prelude_problem: None };
+        match prelude::dir() {
+            Ok(dir) => {
+                let source = format!("use {} *", nu_raw_string(&dir.join("prelude.nu").to_string_lossy()));
+                if let Err(failure) = nu.run_source("nux-prelude", &source) {
+                    nu.prelude_problem = Some(failure.text);
+                }
+            }
+            Err(problem) => nu.prelude_problem = Some(problem),
+        }
+        Ok(nu)
+    }
+
+    /// Parse code without running it. Gives the block, what parsing added to the engine, and
+    /// where the code starts in the engine's span coordinates.
+    fn parse(&self, name: &str, source: &str) -> Result<(Arc<Block>, StateDelta, usize), Failure> {
+        let mut working_set = StateWorkingSet::new(&self.engine);
+        let base = working_set.next_span_start();
+        let block = nu_parser::parse(&mut working_set, Some(name), source.as_bytes(), false);
+        if let Some(error) = working_set.parse_errors.first() {
+            return Err(self.failure(Raw::Parse(error), &working_set));
+        }
+        if let Some(error) = working_set.compile_errors.first() {
+            return Err(self.failure(Raw::Compile(error), &working_set));
+        }
+        Ok((block, working_set.render(), base))
+    }
+
+    fn shell_failure(&self, error: &ShellError) -> Failure {
+        self.failure(Raw::Shell(error), &self.engine)
+    }
+
+    /// An error in words: Nushell's message, then nux's hints for it (see `assist`).
+    fn failure(&self, raw: Raw, sources: &dyn Sources) -> Failure {
+        let error: &dyn miette::Diagnostic = match &raw {
+            Raw::Parse(e) => *e,
+            Raw::Compile(e) => *e,
+            Raw::Shell(e) => *e,
+        };
+        let hints = assist::error_hints(&raw, sources, &self.engine);
+        let text = format::join(&[&format::format_error(error, sources), &hints]);
+        let record = format::error_record(error, sources, &text);
+        Failure { code: format::error_code(error), record, text }
+    }
+
+    fn run_block(&mut self, block: &Block, delta: StateDelta, input: PipelineData) -> Result<PipelineData, ShellError> {
+        self.engine.merge_delta(delta)?;
+        let data = eval_block::<WithoutDebug>(&self.engine, &mut self.stack, block, input)?;
+        Ok(data.body)
+    }
+
+    fn run_source(&mut self, name: &str, source: &str) -> Result<PipelineData, Failure> {
+        let (block, delta, _) = self.parse(name, source)?;
+        self.run_block(&block, delta, PipelineData::empty()).map_err(|e| self.shell_failure(&e))
+    }
+
+    /// Run an agent's code the way nux promises (see `nux help`): external commands at the top
+    /// level are completed, so that their output and exit code are seen.
+    fn evaluate(&mut self, code: &str, input: PipelineData) -> Result<Evaluated, Stopped> {
+        let (block, delta, base) = self.parse(CODE_FILE, code).map_err(Stopped::Failed)?;
+        let checked = with_exit_checks(code, &statements(&block, base), self.prelude_problem.is_none());
+        let (block, delta, last_command) = if checked.changed {
+            match self.parse(CODE_FILE, &checked.code) {
+                Ok((block, delta, _)) => (block, delta, checked.last_command),
+                // Should the additions ever break the code: run it as it was given.
+                Err(_) => (block, delta, None),
+            }
+        } else {
+            (block, delta, None)
+        };
+        let body = match self.run_block(&block, delta, input) {
+            Ok(body) => body,
+            Err(ShellError::Exit { code, .. }) => return Err(Stopped::Exit(code)),
+            Err(error) => return Err(Stopped::Failed(self.shell_failure(&error))),
+        };
+        self.evaluated(body, last_command).map_err(|e| Stopped::Failed(self.shell_failure(&e)))
+    }
+
+    fn evaluated(&self, body: PipelineData, last_command: Option<String>) -> Result<Evaluated, ShellError> {
+        let value = match body {
+            // An external command whose output nux did not complete (redirected, or in
+            // code nux could not rewrite): its output, and its exit code when it has one.
+            PipelineData::ByteStream(stream, ..) => match stream.into_child() {
+                Ok(mut child) => {
+                    child.ignore_error(true);
+                    let output = child.wait_with_output()?;
+                    return Ok(Evaluated::Completed {
+                        stdout: String::from_utf8_lossy(&output.stdout.unwrap_or_default()).into_owned(),
+                        stderr: String::from_utf8_lossy(&output.stderr.unwrap_or_default()).into_owned(),
+                        exit_code: output.exit_status.code() as i64,
+                        command: None,
+                    });
+                }
+                Err(stream) => {
+                    let mut buffer = Vec::new();
+                    stream.write_to(&mut buffer)?;
+                    Value::string(String::from_utf8_lossy(&buffer), Span::unknown())
+                }
+            },
+            other => other.into_value(Span::unknown())?,
+        };
+        if let Value::Error { error, .. } = value {
+            return Err(*error);
+        }
+        if let (Some(command), Value::Record { val, .. }) = (&last_command, &value) {
+            if let (Some(stdout), Some(Value::Int { val: exit_code, .. })) = (val.get("stdout"), val.get("exit_code")) {
+                let as_text = |v: Option<&Value>| match v {
+                    Some(Value::String { val, .. }) => val.clone(),
+                    Some(Value::Binary { val, .. }) => String::from_utf8_lossy(val).into_owned(),
+                    _ => String::new(),
+                };
+                return Ok(Evaluated::Completed {
+                    stdout: as_text(Some(stdout)),
+                    stderr: as_text(val.get("stderr")),
+                    exit_code: *exit_code,
+                    command: Some(command.clone()),
+                });
+            }
+        }
+        Ok(Evaluated::Value(value))
+    }
+
+    /// Run the code an agent gave, and put the outcome into words.
+    pub fn run_code(&mut self, code: &str) -> Reply {
+        let before = self.variable_ids();
+        let mut reply = match self.evaluate(code, PipelineData::empty()) {
+            Ok(Evaluated::Value(value)) => self.value_reply(value),
+            Ok(Evaluated::Completed { stdout, stderr, exit_code, command }) => {
+                self.completed_reply(&stdout, &stderr, exit_code, command.as_deref())
+            }
+            Err(Stopped::Exit(code)) => {
+                let mut reply = if code == 0 { Reply::ok("") } else { Reply::failed(Outcome::Error, "", None) };
+                reply.exit_code = code;
+                return reply;
+            }
+            Err(Stopped::Failed(failure)) => Reply::failed(Outcome::Error, failure.text, failure.code),
+        };
+        // A call that failed loses its variables with it: keep them for a next call.
+        if !reply.ok {
+            let variables = self.new_variables(&before);
+            if !variables.is_empty() {
+                reply.text = format::join(&[&reply.text, &kept::keep_variables(&self.engine, &variables)]);
+            }
+        }
+        reply
+    }
+
+    /// For `try-nu`: run the code as a child of another nux, and give `{value, error}`.
+    pub fn run_for_result(&mut self, code: &str, input: Value) -> Value {
+        let nothing = || Value::nothing(Span::unknown());
+        let (value, error) = match self.evaluate(code, PipelineData::value(input, None)) {
+            Ok(Evaluated::Value(value)) => (value, nothing()),
+            Ok(Evaluated::Completed { stdout, stderr, exit_code, .. }) => (
+                Value::record(
+                    record! {
+                        "stdout" => Value::string(stdout, Span::unknown()),
+                        "stderr" => Value::string(stderr, Span::unknown()),
+                        "exit_code" => Value::int(exit_code, Span::unknown()),
+                    },
+                    Span::unknown(),
+                ),
+                nothing(),
+            ),
+            Err(Stopped::Exit(0)) => (nothing(), nothing()),
+            Err(Stopped::Exit(code)) => (
+                nothing(),
+                Value::record(record! { "msg" => Value::string(format!("the code ran `exit {code}`"), Span::unknown()) }, Span::unknown()),
+            ),
+            Err(Stopped::Failed(failure)) => (nothing(), failure.record),
+        };
+        Value::record(record! { "value" => value, "error" => error }, Span::unknown())
+    }
+
+    /// A value as NUON (`null` for what NUON cannot hold).
+    pub fn to_nuon(&self, value: &Value) -> String {
+        let config = nuon::ToNuonConfig::default().style(nuon::ToStyle::Raw);
+        nuon::to_nuon(&self.engine, value, config).unwrap_or_else(|e| {
+            // Give the error instead of a value NUON cannot hold, e.g. a closure.
+            format!("{{value: null, error: {{msg: {}}}}}", serde_json::to_string(&format!("the value cannot be passed back: {e}")).unwrap_or_default())
+        })
+    }
+
+    /// Variables known to the engine (in scope at the top level).
+    fn variable_ids(&self) -> HashSet<VarId> {
+        self.engine.active_overlays(&[]).flat_map(|overlay| overlay.vars.values().copied()).collect()
+    }
+
+    /// The top-level variables the code defined and set, in the order it defined them.
+    fn new_variables(&self, before: &HashSet<VarId>) -> Vec<(String, Value)> {
+        let mut found: Vec<(VarId, String, Value)> = self
+            .engine
+            .active_overlays(&[])
+            .flat_map(|overlay| overlay.vars.iter())
+            .filter(|(_, id)| !before.contains(id))
+            .filter_map(|(name, id)| {
+                let name = String::from_utf8_lossy(name).trim_start_matches('$').to_string();
+                let value = self.stack.get_var(*id, Span::unknown()).ok()?;
+                Some((*id, name, value))
+            })
+            .collect();
+        found.sort_by_key(|(id, _, _)| id.get());
+        found.into_iter().map(|(_, name, value)| (name, value)).collect()
+    }
+
+    fn value_reply(&self, value: Value) -> Reply {
+        let text = match &value {
+            // "No value" (a `let`, a `cd`, a `print`) prints nothing.
+            Value::Nothing { .. } => return Reply::ok(""),
+            // Text (also what an external command printed, or `to json` made) is shown as it is.
+            Value::String { val, .. } => without_final_newline(val).to_string(),
+            _ => {
+                let config = nuon::ToNuonConfig::default().style(nuon::ToStyle::Raw).raw_strings(true);
+                match nuon::to_nuon(&self.engine, &value, config) {
+                    Ok(text) => text,
+                    // A closure, a polars frame: what Nushell would print for it.
+                    Err(_) => value.to_expanded_string(", ", &self.engine.get_config()),
+                }
+            }
+        };
+        if text.len() <= OUTPUT_LIMIT {
+            return Reply::ok(text);
+        }
+        match kept::keep_result(&self.engine, &value) {
+            Some(name) => Reply::ok(match &value {
+                Value::String { .. } => assist::large_text(&text, &name),
+                _ => assist::large_value(&self.engine, &value, &name, text.len()),
+            }),
+            None => Reply::ok(text),
+        }
+    }
+
+    fn completed_reply(&self, stdout: &str, stderr: &str, exit_code: i64, command: Option<&str>) -> Reply {
+        let mut shown = stdout.to_string();
+        if shown.len() > OUTPUT_LIMIT {
+            if let Some(name) = kept::keep_result(&self.engine, &Value::string(stdout, Span::unknown())) {
+                shown = assist::large_text(stdout, &name);
+            }
+        }
+        let (ok, text) = format_completed(&shown, stderr, exit_code, command);
+        if ok { Reply::ok(text) } else { Reply::failed(Outcome::ExternalFailed, text, None) }
+    }
+
+    /// `nux help <command>`: Nushell's help for one command.
+    pub fn help(&mut self, words: &[String]) -> Reply {
+        let source = format!("help {}", words.iter().map(|w| nu_raw_string(w)).collect::<Vec<_>>().join(" "));
+        match self.run_source("nux-help", &source).and_then(|data| {
+            data.into_value(Span::unknown()).map_err(|e| self.shell_failure(&e))
+        }) {
+            Ok(Value::String { val, .. }) => Reply::ok(val.trim().to_string()),
+            Ok(other) => Reply::ok(other.to_expanded_string("\n", &self.engine.get_config())),
+            Err(failure) => Reply::failed(
+                Outcome::Error,
+                format!(
+                    "{}\nSearch for it with: nux find {}",
+                    failure.text,
+                    words.last().map(String::as_str).unwrap_or("<word>")
+                ),
+                failure.code,
+            ),
+        }
+    }
+
+    /// `nux find <word>`: commands whose name, description or search terms mention it.
+    pub fn find(&mut self, term: &str) -> Reply {
+        let source = format!(
+            r#"let term = ({term} | str downcase)
+help commands
+| where {{|c| ($c.name | str downcase | str contains $term) or ($c.description | str downcase | str contains $term) or ($c.search_terms | str downcase | str contains $term) }}
+| each {{|c| $"($c.name)  ($c.description | lines | get 0? | default '')" }}
+| str join "\n""#,
+            term = nu_raw_string(term)
+        );
+        match self.run_source("nux-find", &source).and_then(|d| d.into_value(Span::unknown()).map_err(|e| self.shell_failure(&e))) {
+            Ok(Value::String { val, .. }) if val.is_empty() => Reply::ok(format!("No command mentions \"{term}\".")),
+            Ok(Value::String { val, .. }) => Reply::ok(val),
+            Ok(other) => Reply::ok(other.to_expanded_string("\n", &self.engine.get_config())),
+            Err(failure) => Reply::failed(Outcome::Error, failure.text, failure.code),
+        }
+    }
+}
+
+const NU_VERSION: &str = "0.117.0";
+
+/// `NU_LIB_DIRS`, where `use` and `source` look for modules: the directories `try-nu -I`
+/// passed, as the environment variable and as the constant `$NU_LIB_DIRS` (like `nu -I`).
+fn set_lib_dirs(engine: &mut EngineState) {
+    let Some(include) = std::env::var_os(commands::try_nu::CHILD_INCLUDE) else { return };
+    let dirs: Vec<Value> = std::env::split_paths(&include)
+        .map(|dir| Value::string(dir.to_string_lossy(), Span::unknown()))
+        .collect();
+    engine.add_env_var("NU_LIB_DIRS".into(), Value::list(dirs.clone(), Span::unknown()));
+    let delta = {
+        let mut working_set = StateWorkingSet::new(engine);
+        let var_id = working_set.add_variable(b"$NU_LIB_DIRS".into(), Span::unknown(), Type::List(Box::new(Type::String)), false);
+        working_set.set_variable_const_val(var_id, Value::list(dirs, Span::unknown()));
+        working_set.render()
+    };
+    let _ = engine.merge_delta(delta);
+}

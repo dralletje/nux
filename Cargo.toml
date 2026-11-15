@@ -1,0 +1,42 @@
+[package]
+name = "nux"
+version = "0.1.0"
+edition = "2024"
+description = "Nushell for agents: one call, one fresh Nushell, results as data."
+publish = false
+
+[dependencies]
+# Nushell, as libraries. All at exactly the same version: their APIs change between releases.
+# The `plugin` features are the ones `nu`'s own `plugin` feature turns on.
+nu-cli = { version = "=0.117.0", features = ["plugin"] }
+nu-cmd-extra = "=0.117.0"
+nu-cmd-lang = { version = "=0.117.0", features = ["plugin"] }
+nu-cmd-plugin = "=0.117.0"
+nu-command = { version = "=0.117.0", features = ["plugin"] }
+nu-config = { version = "=0.117.0", features = ["plugin"] }
+nu-engine = { version = "=0.117.0", features = ["plugin"] }
+nu-parser = { version = "=0.117.0", features = ["plugin"] }
+nu-path = "=0.117.0"
+nu-plugin-engine = "=0.117.0"
+nu-protocol = { version = "=0.117.0", features = ["plugin"] }
+nu-std = "=0.117.0"
+nuon = "=0.117.0"
+# The version Nushell's errors implement `Diagnostic` from.
+miette = "7.6"
+
+chrono = "0.4.45"
+libc = "0.2"
+serde_json = "1.0.154"
+signal-hook = "0.3"
+uuid = { version = "1.29.2", features = ["v4"] }
+
+[profile.release]
+# Release while developing too: the Nushell crates are slow to build and slow to run
+# unoptimized. Development help goes on nux's own code only (below), so that changing it
+# never rebuilds the dependencies. Not stripped: Nushell's function names in backtraces.
+incremental = true
+
+[profile.release.package.nux]
+debug = "line-tables-only"
+debug-assertions = true
+overflow-checks = true
