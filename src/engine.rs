@@ -124,9 +124,8 @@ impl Nu {
         // External commands at the end of a pipeline hand their output to nux, instead of
         // writing to the terminal.
         let mut nu = Nu { engine, stack: stack.capture_all(), prelude_problem: None };
-        match prelude::dir() {
-            Ok(dir) => {
-                let source = format!("use {} *", nu_raw_string(&dir.join("prelude.nu").to_string_lossy()));
+        match prelude::install(&mut nu.engine) {
+            Ok(source) => {
                 if let Err(failure) = nu.run_source("nux-prelude", &source) {
                     nu.prelude_problem = Some(failure.text);
                 }

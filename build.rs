@@ -1,5 +1,7 @@
-//! Bundles the prelude: every file under `prelude/` goes into the binary (see src/prelude.rs),
-//! with a hash of all of them, so that a changed prelude gets a folder of its own.
+//! Bundles the prelude: every file under `prelude/` goes into the binary (see src/prelude.rs).
+//! The `.nu` files are loaded from the binary as they are; the other files (the runners of `py`
+//! and `js`) are written out, to a folder named after a hash of them, so that changed runners
+//! get a folder of their own.
 
 use std::{
     fs,
@@ -29,21 +31,31 @@ fn main() {
     let mut found = Vec::new();
     files(&root, &mut found);
 
-    // FNV-1a over names and contents: a name for this version of the prelude.
+    // FNV-1a over the runners' names and contents: a name for this version of them.
     let mut hash: u64 = 0xcbf29ce484222325;
-    let mut entries = String::new();
+    let mut modules = String::new();
+    let mut runners = String::new();
     for path in &found {
         println!("cargo::rerun-if-changed={}", path.display());
         let relative = path.strip_prefix(&root).unwrap().to_string_lossy().into_owned();
-        for byte in relative.bytes().chain(fs::read(path).unwrap()) {
-            hash = (hash ^ byte as u64).wrapping_mul(0x100000001b3);
+        let entry = format!("    ({relative:?}, include_bytes!({:?})),\n", path.display().to_string());
+        if relative.ends_with(".nu") {
+            modules.push_str(&entry);
+        } else {
+            for byte in relative.bytes().chain(fs::read(path).unwrap()) {
+                hash = (hash ^ byte as u64).wrapping_mul(0x100000001b3);
+            }
+            runners.push_str(&entry);
         }
-        entries.push_str(&format!("    ({relative:?}, include_bytes!({:?})),\n", path.display().to_string()));
     }
     let out = PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("prelude_files.rs");
     fs::write(
         out,
-        format!("pub const FILES: &[(&str, &[u8])] = &[\n{entries}];\npub const HASH: &str = \"{hash:016x}\";\n"),
+        format!(
+            "pub const MODULES: &[(&str, &[u8])] = &[\n{modules}];\n\
+             pub const RUNNERS: &[(&str, &[u8])] = &[\n{runners}];\n\
+             pub const RUNNERS_HASH: &str = \"{hash:016x}\";\n"
+        ),
     )
     .unwrap();
 }

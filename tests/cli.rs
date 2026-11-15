@@ -127,22 +127,30 @@ fn the_prelude_comes_from_the_binary() {
     let own = scratch().join(format!("prelude-test-{}", std::process::id()));
     let env = [("NUX_DIR", own.as_path())];
     let nux = |code: &str| nux_with(&[], code, &env);
-    // `py` needs its runner as a file: written out from the binary into NUX_DIR.
+    // `py` needs its runner as a file: written out from the binary into NUX_DIR. The .nu
+    // files are loaded from the binary and not written.
     let run = nux("[1 2 3] | py 'sum(data)'");
     assert_eq!((run.status, run.stdout.as_str()), (0, "6\n"), "{}", run.stderr);
-    let folders: Vec<_> = std::fs::read_dir(own.join("prelude")).unwrap().filter_map(Result::ok).collect();
-    assert_eq!(folders.len(), 1, "one folder, named after the prelude's hash");
-    assert!(folders[0].path().join("py_runner.py").exists());
-    assert!(folders[0].path().join("browser/mod.nu").exists());
+    let folders: Vec<_> = std::fs::read_dir(own.join("runners")).unwrap().filter_map(Result::ok).collect();
+    assert_eq!(folders.len(), 1, "one folder, named after the runners' hash");
+    let dir = folders[0].path();
+    assert!(dir.join("py_runner.py").exists());
+    assert!(dir.join("js_runner.mjs").exists());
+    let written: Vec<_> = std::fs::read_dir(&dir).unwrap().filter_map(Result::ok).map(|e| e.file_name()).collect();
+    assert!(!written.iter().any(|name| name.to_string_lossy().ends_with(".nu")), "{written:?}");
+    assert!(!own.join("prelude").exists());
 
     // Part of it removed (a temp cleanup), or cut short: written again on the next call.
-    let dir = folders[0].path();
     std::fs::remove_file(dir.join("py_runner.py")).unwrap();
-    std::fs::remove_dir_all(dir.join("browser")).unwrap();
     std::fs::write(dir.join("nuon.py"), "").unwrap();
     let run = nux("[1 2 3] | py 'sum(data)'");
     assert_eq!((run.status, run.stdout.as_str()), (0, "6\n"), "{}{}", run.stdout, run.stderr);
-    assert!(dir.join("browser/mod.nu").exists());
+
+    // The prelude's modules can be loaded by name, also the ones in a folder of their own.
+    let run = nux("use nux/browser; scope commands | where name == 'browser do' | length");
+    assert_eq!((run.status, run.stdout.as_str()), (0, "1\n"), "{}{}", run.stdout, run.stderr);
+    let run = nux("try-nu 'use nux/typescript.nu; \"a.ts(1,2): error TS1: x\" | typescript from tsc | get code.0' | get value");
+    assert_eq!((run.status, run.stdout.as_str()), (0, "TS1\n"), "{}{}", run.stdout, run.stderr);
 }
 
 /// `http` against a server of the test's own (no network needed): JSON comes back parsed.

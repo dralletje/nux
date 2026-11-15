@@ -1,5 +1,5 @@
-# Commands that every nux call has. Bundled in the nux binary and loaded at the start of
-# every call (src/prelude.rs, src/engine.rs).
+# Commands that every nux call has. Bundled in the nux binary and loaded from it at the start
+# of every call, as the virtual file nux/prelude.nu (src/prelude.rs, src/engine.rs).
 # This file has py, js and search; the files next to it the rest.
 
 export use git.nu
@@ -11,7 +11,8 @@ export use ast.nu *
 export use output.nu *
 export use usage.nu *
 
-const PRELUDE_DIR = (path self | path dirname)
+# The folder the runners of py and js are written to (src/prelude.rs).
+use nux/runners.nu RUNNERS
 
 # Run code in another language: the input goes to the runner as NUON, its output comes back
 # as a value. A failure becomes an error that points at the code.
@@ -25,7 +26,7 @@ def run-code [
   let input = $in
   # A polars frame cannot be written as NUON (and the error cannot be caught): take its rows.
   let input = if ($input | describe) =~ '^polars_' { $input | polars into-nu } else { $input }
-  let run = ($input | to nuon --raw --serialize | run-external $program ($PRELUDE_DIR | path join $runner) $code | complete)
+  let run = ($input | to nuon --raw --serialize | run-external $program ($RUNNERS | path join $runner) $code | complete)
   if $run.exit_code != 0 {
     let lines = ($run.stderr | str trim | lines)
     error make {
