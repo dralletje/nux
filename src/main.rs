@@ -159,8 +159,7 @@ fn main() {
         fail(Outcome::StartFailed, problem);
     }
     let include = try_nu_child.as_ref().and_then(|child| child.include.clone());
-    // `nux help` and `nux find` are about every command; code needs only what it uses.
-    let mut nu = match Nu::start(&cwd, interrupt, include, command.is_none()) {
+    let mut nu = match Nu::start(&cwd, interrupt, include) {
         Ok(nu) => nu,
         Err(message) => fail(Outcome::StartFailed, message),
     };
