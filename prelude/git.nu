@@ -318,13 +318,22 @@ export def diff [
   --unified (-U): int      # The same as --context
   --stat                   # One row per file, as without --lines (accepted as git takes it)
 ]: nothing -> table {
-  # What git takes as a commit (or a range) goes before `--`; everything else is a path.
-  let is_revision = {|target|
-    if ($target | str contains "..") { return true }
-    (^git rev-parse --verify --quiet --end-of-options $"($target)^{commit}" | complete).exit_code == 0
+  # What git takes as a commit (or a range of commits) goes before `--`; everything else is a
+  # path. A range (`a..b`, `a...b`) is one only when both its ends are commits, an empty end
+  # being HEAD as for git: a path like `../README.md` (what `git status` gives in a
+  # subdirectory) or `a..b.txt` contains `..` too. Each target is asked about once.
+  let is_commit = {|name|
+    (^git rev-parse --verify --quiet --end-of-options $"($name)^{commit}" | complete).exit_code == 0
   }
-  let revisions = ($targets | where {|target| do $is_revision $target })
-  let paths = ($targets | where {|target| not (do $is_revision $target) })
+  let is_revision = {|target|
+    let separator = if ($target | str contains "...") { "..." } else if ($target | str contains "..") { ".." } else { null }
+    if $separator == null { return (do $is_commit $target) }
+    let ends = ($target | split row $separator)
+    (($ends | length) == 2) and ($ends | all {|end| do $is_commit (if $end == "" { "HEAD" } else { $end }) })
+  }
+  let classified = ($targets | each {|target| {target: $target, revision: (do $is_revision $target)} })
+  let revisions = ($classified | where revision == true | each {|row| $row.target })
+  let paths = ($classified | where revision == false | each {|row| $row.target })
   let versions = (versions-of $revisions ($staged or $cached))
   let context = ($context | default $unified)
   let here = (here)

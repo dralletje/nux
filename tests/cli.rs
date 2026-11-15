@@ -168,6 +168,82 @@ fn https_has_a_crypto_provider() {
     assert!(!run.stdout.contains("crypto provider"), "{}", run.stdout);
 }
 
+/// A git repository of the test's own: two commits (README.md, sub/a.txt, `a..b.txt` and
+/// old.txt in the first; README.md changed in the second), then, not committed: README.md
+/// and `a..b.txt` changed, old.txt deleted.
+fn git_repo(name: &str) -> PathBuf {
+    let dir = scratch().join(format!("{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("sub")).unwrap();
+    let git = |args: &[&str]| {
+        let status = Command::new("git")
+            .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "init.defaultBranch=main"])
+            .args(args)
+            .current_dir(&dir)
+            .stdout(Stdio::null())
+            .status()
+            .unwrap();
+        assert!(status.success(), "git {args:?}");
+    };
+    git(&["init", "-q"]);
+    for (file, text) in [("README.md", "one\n"), ("sub/a.txt", "a\n"), ("a..b.txt", "dots\n"), ("old.txt", "old\n")] {
+        std::fs::write(dir.join(file), text).unwrap();
+    }
+    git(&["add", "."]);
+    git(&["commit", "-q", "-m", "first"]);
+    std::fs::write(dir.join("README.md"), "one\ntwo\n").unwrap();
+    git(&["commit", "-q", "-am", "second"]);
+    std::fs::write(dir.join("README.md"), "one\ntwo\nthree\n").unwrap();
+    std::fs::write(dir.join("a..b.txt"), "dots\nmore\n").unwrap();
+    std::fs::remove_file(dir.join("old.txt")).unwrap();
+    dir
+}
+
+fn nux_in(dir: &std::path::Path, code: &str) -> Run {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_nux"))
+        .env("NUX_LOG_DIR", scratch().join("log"))
+        .env("NUX_DIR", scratch().join("nux"))
+        .current_dir(dir)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(code.as_bytes()).unwrap();
+    let output = child.wait_with_output().unwrap();
+    Run {
+        status: output.status.code().unwrap_or(-1),
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    }
+}
+
+/// `git diff` tells revisions from paths, also for paths with `..` in them.
+#[test]
+fn git_diff_tells_ranges_from_paths() {
+    let repo = git_repo("git-diff");
+    let sub = repo.join("sub");
+    // A path from a subdirectory, as `git status` gives it there: a path, not a range.
+    // (Paths joined with spaces: plain text, no NUON quoting to get right.)
+    let paths = |dir: &std::path::Path, code: &str| {
+        let run = nux_in(dir, &format!("{code} | get path | sort | str join ' '"));
+        assert_eq!(run.status, 0, "{code}: {}{}", run.stdout, run.stderr);
+        run.stdout.trim_end().to_string()
+    };
+    assert_eq!(paths(&sub, "git diff ../README.md"), "../README.md");
+    assert_eq!(paths(&sub, "git diff ...(git status | get path)"), "../README.md ../a..b.txt ../old.txt");
+    // A deleted file (not on disk) and a file name with two dots in it.
+    assert_eq!(paths(&sub, "git diff ../old.txt"), "../old.txt");
+    assert_eq!(paths(&repo, "git diff a..b.txt"), "a..b.txt");
+    // Ranges: both ends commits; an empty end is HEAD.
+    for range in ["HEAD~1..HEAD", "HEAD~1..", "HEAD~1...HEAD", "main~1..main"] {
+        assert_eq!(paths(&repo, &format!("git diff {range}")), "README.md", "{range}");
+    }
+    // A range and a path together.
+    let run = nux_in(&repo, "git diff HEAD~1..HEAD README.md | select path added");
+    assert_eq!(run.stdout, "[[path,added];[\"README.md\",1]]\n", "{}{}", run.stdout, run.stderr);
+}
+
 #[test]
 fn exit_sets_the_status() {
     assert_eq!(nux(&[], "exit 4").status, 4);
