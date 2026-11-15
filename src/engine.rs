@@ -323,6 +323,11 @@ impl Nu {
             .filter(|(_, id)| !before.contains(id))
             .filter_map(|(name, id)| {
                 let name = String::from_utf8_lossy(name).trim_start_matches('$').to_string();
+                // `$in` is the pipeline input, which Nushell also keeps as a variable: not
+                // one the code made (and `let in = ...` is not allowed).
+                if name == "in" {
+                    return None;
+                }
                 let value = self.stack.get_var(*id, Span::unknown()).ok()?;
                 Some((*id, name, value))
             })

@@ -26,14 +26,17 @@ def run-ast-grep [arguments: list<string>]: nothing -> list<any> {
 # unexpected) and exits normally, so a broken pattern would look like "no matches". Two
 # signs, both from ast-grep itself, on empty input so that it is only about the pattern:
 #   - its warning that the pattern "contains an ERROR node": the parser could not make
-#     sense of part of it (`foo(`, JSX in plain ts);
+#     sense of part of it (`foo(`, JSX in plain ts). Only when the search found NOTHING
+#     (`found_nothing`): a hole where the grammar wants a literal, `import $X from $SRC`
+#     (a string after `from`), also gives that warning, yet finds exactly what it should.
+#     Broken patterns (`foo(`, `console.log($A`) find nothing, so they are still caught;
 #   - a closing bracket or quote that the parser had to make up to go on (`def f(:`,
 #     `if ($A) {`), which it shows as MISSING in `--debug-query=cst`. Only those count: a
 #     made-up `;` at the end is how a short pattern such as `$A.unwrap()` is read in Rust,
 #     Java or C, and is fine.
 # What cannot be told apart from a valid pattern: other things a parser quietly repairs.
-def pattern-problem [pattern: string, lang: string]: nothing -> any {
-  if ("" | ^ast-grep run --pattern $pattern --lang $lang --stdin | complete | get stderr | str contains "Pattern contains an ERROR node") {
+def pattern-problem [pattern: string, lang: string, found_nothing: bool]: nothing -> any {
+  if $found_nothing and ("" | ^ast-grep run --pattern $pattern --lang $lang --stdin | complete | get stderr | str contains "Pattern contains an ERROR node") {
     return $"it does not parse as ($lang)"
   }
   let made_up = (
@@ -94,7 +97,7 @@ export def ast-find [
   }
   let with_rewrite = ($rewrite != null)
   let matches = (run-ast-grep ($arguments ++ $places))
-  let problem = (pattern-problem $pattern $lang)
+  let problem = (pattern-problem $pattern $lang ($matches | is-empty))
   if $problem != null {
     error make {
       msg: $"The pattern cannot be used: ($problem)"
@@ -104,8 +107,10 @@ export def ast-find [
   }
   $matches | each {|match|
     # A hole for one thing gives its text; one for many, the texts (without the commas between).
-    let single = ($match.metaVariables.single | transpose name node | each {|var| {name: $var.name, value: $var.node.text} })
-    let multi = ($match.metaVariables.multi | transpose name nodes | each {|var| {name: $var.name, value: ($var.nodes | get text | where $it !~ '^[,;]$')} })
+    # A pattern without holes has no metaVariables at all (ast-grep 0.51 leaves the key out).
+    let holes = ($match.metaVariables? | default {})
+    let single = ($holes.single? | default {} | transpose name node | each {|var| {name: $var.name, value: $var.node.text} })
+    let multi = ($holes.multi? | default {} | transpose name nodes | each {|var| {name: $var.name, value: ($var.nodes | get text | where $it !~ '^[,;]$')} })
     let vars = ($single | append $multi | reduce --fold {} {|var, all| $all | insert $var.name $var.value })
     let row = {
       file: ($match.file | str replace --regex '^\./' '')

@@ -122,10 +122,15 @@ fn the_prelude_is_there() {
 
 #[test]
 fn the_prelude_comes_from_the_binary() {
+    // A NUX_DIR of its own: this test damages the prelude on purpose, which must not reach
+    // the other tests running at the same time.
+    let own = scratch().join(format!("prelude-test-{}", std::process::id()));
+    let env = [("NUX_DIR", own.as_path())];
+    let nux = |code: &str| nux_with(&[], code, &env);
     // `py` needs its runner as a file: written out from the binary into NUX_DIR.
-    let run = nux(&[], "[1 2 3] | py 'sum(data)'");
+    let run = nux("[1 2 3] | py 'sum(data)'");
     assert_eq!((run.status, run.stdout.as_str()), (0, "6\n"), "{}", run.stderr);
-    let folders: Vec<_> = std::fs::read_dir(scratch().join("nux/prelude")).unwrap().filter_map(Result::ok).collect();
+    let folders: Vec<_> = std::fs::read_dir(own.join("prelude")).unwrap().filter_map(Result::ok).collect();
     assert_eq!(folders.len(), 1, "one folder, named after the prelude's hash");
     assert!(folders[0].path().join("py_runner.py").exists());
     assert!(folders[0].path().join("browser/mod.nu").exists());
@@ -135,7 +140,7 @@ fn the_prelude_comes_from_the_binary() {
     std::fs::remove_file(dir.join("py_runner.py")).unwrap();
     std::fs::remove_dir_all(dir.join("browser")).unwrap();
     std::fs::write(dir.join("nuon.py"), "").unwrap();
-    let run = nux(&[], "[1 2 3] | py 'sum(data)'");
+    let run = nux("[1 2 3] | py 'sum(data)'");
     assert_eq!((run.status, run.stdout.as_str()), (0, "6\n"), "{}{}", run.stdout, run.stderr);
     assert!(dir.join("browser/mod.nu").exists());
 }
@@ -326,6 +331,36 @@ fn a_failed_call_keeps_its_variables() {
     assert!(nux(&[], "kept").stdout.contains("files"));
     let missing = nux(&[], "kept fils");
     assert!(missing.stdout.contains("Did you mean files?"), "{}", missing.stdout);
+}
+
+/// `$in` (the pipeline input) is not a variable the code made: a failed call does not keep it.
+#[test]
+fn a_failed_call_does_not_keep_in() {
+    let run = nux(&[], "let n = 1\n$in | from json");
+    assert_eq!(run.status, 1);
+    let kept = run.stdout.lines().find(|l| l.starts_with("Kept from this call:")).unwrap_or_default();
+    assert_eq!(kept, "Kept from this call: $n (int). Get one back in a next call: let n = (kept n)", "{}", run.stdout);
+}
+
+/// `ast-find`: a pattern without holes, and a hole where the grammar wants a literal (a
+/// string after `from`), both work; a broken pattern is still an error, not "no matches".
+/// Needs `ast-grep`; skipped without.
+#[test]
+fn ast_find_patterns() {
+    if Command::new("ast-grep").arg("--version").output().is_err() {
+        eprintln!("skipped: no ast-grep");
+        return;
+    }
+    let dir = scratch().join(format!("ast-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("t.tsx"), "import { a, b } from \"x\";\nimport c from \"y\";\nfoo(1);\n").unwrap();
+    let run = nux_in(&dir, "ast-find --lang tsx '\"x\"' t.tsx | select line vars");
+    assert_eq!(run.stdout, "[[line,vars];[1,{}]]\n", "{}{}", run.stdout, run.stderr);
+    let run = nux_in(&dir, "ast-find --lang tsx 'import { $$$N } from $SRC' t.tsx | get vars.0");
+    assert_eq!(run.stdout, "{SRC:r#'\"x\"'#,N:[a,b]}\n", "{}{}", run.stdout, run.stderr);
+    let run = nux_in(&dir, "ast-find --lang tsx 'foo(' t.tsx");
+    assert_eq!(run.status, 1);
+    assert!(run.stdout.contains("it does not parse as tsx"), "{}", run.stdout);
 }
 
 #[test]
