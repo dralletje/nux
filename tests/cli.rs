@@ -311,12 +311,6 @@ fn from_tsc_reads(version: &str) {
     assert_eq!(rows("build-pretty.txt"), build, "{version}: --pretty gives the same rows, without the summary");
 }
 
-/// `from env` is another name for Nushell's `from dotenv`.
-#[test]
-fn from_env_reads_a_dotenv_file() {
-    let run = nux(&[], "\"# a comment\\nA=1\\nexport B='two words'\\n\" | from env | to nuon");
-    assert_eq!(run.stdout, "{A: \"1\", B: \"two words\"}\n", "{}{}", run.stdout, run.stderr);
-}
 
 /// Ranges into `py` and `js`: counting down and in steps too (Nushell writes those as
 /// `start..next..end`), with or without the end itself.
