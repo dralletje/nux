@@ -73,9 +73,11 @@ point): cargo's own choice took a pre-release of `notify` that does not compile.
   `nux/`, the way Nushell loads `std`: `git.nu` is `nux/git`, `browser/do.nu` is
   `nux/browser/do`, and a call can `use` them too. A module in `prelude/` refers to another
   one by that name (`use nux/util find-up`), not by a relative path, which is not found.
-  A call loads only the modules of `prelude.nu` whose commands its code names (parsing all of
-  them took longer than the rest of starting nux); code that `use`s or `source`s a file of its
-  own, or mentions `help`, `scope` or `which`, gets all of them (`only_needed`). Only the
+  A call loads only the modules of `prelude.nu` that its code calls (parsing all of them took
+  longer than the rest of starting nux): the others get stubs, in an overlay of their own; the
+  code is parsed once to see which stubs it calls (also in closures and in files it `use`s),
+  then those modules are loaded and it is parsed again. Calling `help`, `scope` or `which`
+  loads all of them (`prelude::Later`, `Nu::load_what_code_uses`). Only the
   runners of `py` and `js` are written out, on first use, to `/tmp/nux-<uid>/runners/`.
   `NUX_PRELUDE_DIR` points nux at this folder instead, to work on it without building.
 - `src/guide.md`: `nux guide`, how to write Nushell well. Adapted from the guide Nushell's

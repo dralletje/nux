@@ -28,14 +28,35 @@ use crate::{
 
 include!(concat!(env!("OUT_DIR"), "/prelude_files.rs"));
 
+/// The prelude, ready to load: `source` loads it, `later` are its modules that it leaves out.
+pub struct Prelude {
+    pub source: String,
+    pub later: Vec<Later>,
+}
+
+/// A module of the prelude that is not loaded yet. In its place is a stub: a command `stub`
+/// that takes any arguments. Code that calls the stub needs the module, which `load` loads
+/// (src/engine.rs). The stubs also keep the names known, for "Did you mean `wait-for`?".
+/// They are in an overlay of their own (`stubs_source`), so that they can be put out of the
+/// way all at once before modules are loaded: a module's examples are parsed with it, and
+/// would find its stub (`browser do { ... }`: a stub takes no block). `hide` does not reach
+/// into the modules parsed after it; `overlay hide` does.
+#[derive(Clone)]
+pub struct Later {
+    pub stub: String,
+    pub load: String,
+}
+
 /// Make the prelude's modules available and give the code that loads the prelude.
 ///
-/// With `code`, only the modules that code uses are loaded (see `needed`): parsing all of them
-/// takes longer than the rest of starting nux. Without, all of them (`nux help`, `nux find`).
+/// With `lazy`, the modules of prelude.nu are left out and stubs take their place (see
+/// `Later`): parsing all of them takes longer than the rest of starting nux. Without, all of
+/// them are loaded (`nux help`, `nux find`). `nux/output` is always loaded: nux adds its
+/// `check-exit` to code itself (src/rewrite.rs).
 ///
 /// With NUX_PRELUDE_DIR set (to work on the prelude itself without building nux), the modules
 /// and the runners are read from that folder instead, under the same names.
-pub fn install(engine: &mut EngineState, code: Option<&str>) -> Result<String, String> {
+pub fn install(engine: &mut EngineState, lazy: bool) -> Result<Prelude, String> {
     let from_disk = std::env::var_os("NUX_PRELUDE_DIR").filter(|d| !d.is_empty()).map(PathBuf::from);
     let (runners, mut modules) = match &from_disk {
         Some(dir) => {
@@ -47,7 +68,8 @@ pub fn install(engine: &mut EngineState, code: Option<&str>) -> Result<String, S
     };
     let runners_module = format!("export const RUNNERS = {}\n", nu_raw_string(&runners.to_string_lossy()));
     modules.push(("runners.nu".into(), runners_module.into_bytes()));
-    if let Some(code) = code {
+    let mut later = Vec::new();
+    if lazy {
         let module_text = |name: &str| {
             let file = format!("{name}.nu");
             let folder = format!("{name}/mod.nu");
@@ -56,11 +78,12 @@ pub fn install(engine: &mut EngineState, code: Option<&str>) -> Result<String, S
                 .find(|(path, _)| *path == file || *path == folder)
                 .map(|(_, contents)| String::from_utf8_lossy(contents).into_owned())
         };
-        let trimmed = module_text("prelude").map(|prelude| only_needed(&prelude, code, module_text));
-        if let Some(trimmed) = trimmed
+        let split = module_text("prelude").map(|prelude| with_stubs(&prelude, module_text));
+        if let Some((trimmed, left_out)) = split
             && let Some((_, contents)) = modules.iter_mut().find(|(path, _)| path == "prelude.nu")
         {
             *contents = trimmed.into_bytes();
+            later = left_out;
         }
     }
     let modules: Vec<(&str, &[u8])> = modules.iter().map(|(name, contents)| (name.as_str(), contents.as_slice())).collect();
@@ -69,34 +92,56 @@ pub fn install(engine: &mut EngineState, code: Option<&str>) -> Result<String, S
     let _ = add_virtual_dir(&mut working_set, "nux", "", &modules);
     let delta = working_set.render();
     engine.merge_delta(delta).map_err(|e| format!("Could not load the prelude: {e}"))?;
-    Ok("use nux/prelude *".to_string())
+    Ok(Prelude { source: "use nux/prelude *".to_string(), later })
 }
 
-/// `prelude` without the `export use nux/<module>` lines of the modules `code` does not need.
-/// `module_text` gives a module's source by its name (`git`, `browser`).
-fn only_needed(prelude: &str, code: &str, module_text: impl Fn(&str) -> Option<String>) -> String {
-    let mut words = words(code);
-    // Not in the code as given, but what nux adds after external commands (src/rewrite.rs).
-    words.push(CHECK_EXIT.to_string());
-    if needs_everything(&words) {
-        return prelude.to_string();
+/// `prelude` with stubs in place of its `export use nux/<module>` lines, and what each stub
+/// stands for. `module_text` gives a module's source by its name (`git`, `browser`).
+fn with_stubs(prelude: &str, module_text: impl Fn(&str) -> Option<String>) -> (String, Vec<Later>) {
+    let mut kept = String::new();
+    let mut later = Vec::new();
+    for line in prelude.lines() {
+        let module = preloaded_module(line).and_then(|(module, star)| Some((module, star, module_text(module)?)));
+        let Some((module, star, text)) = module else {
+            kept.push_str(line);
+            kept.push('\n');
+            continue;
+        };
+        let name = module.rsplit('/').next().unwrap_or(module);
+        let commands = exported_names(&text, name);
+        if commands.iter().any(|c| c == CHECK_EXIT) {
+            kept.push_str(line);
+            kept.push('\n');
+            continue;
+        }
+        // Without `*` its commands are `<module> ...`: one stub, under the module's name.
+        let (stubs, load) =
+            if star { (commands, format!("use nux/{module} *")) } else { (vec![name.to_string()], format!("use nux/{module}")) };
+        for stub in stubs {
+            later.push(Later { stub, load: load.clone() });
+        }
     }
-    prelude
-        .lines()
-        .filter(|line| {
-            let Some((module, star)) = preloaded_module(line) else { return true };
-            // Without `*` its commands are `<module> ...` (or `<module>`, its main).
-            let name = module.rsplit('/').next().unwrap_or(module);
-            if !star {
-                return words.iter().any(|w| w == name);
-            }
-            match module_text(module) {
-                Some(text) => exported_names(&text, name).iter().any(|command| mentions(&words, command)),
-                None => true,
-            }
-        })
-        .map(|line| format!("{line}\n"))
-        .collect()
+    (kept, later)
+}
+
+/// Code that puts stubs for `later` in place, as the overlay `overlay`.
+pub fn stubs_source(later: &[Later], overlay: &str) -> String {
+    let mut source = format!("module {overlay} {{\n");
+    for Later { stub, .. } in later {
+        source.push_str(&format!(
+            "  export def --wrapped \"{stub}\" [...arguments] {{ error make {{msg: {}}} }}\n",
+            nu_raw_string(&format!("nux did not load `{stub}` (a bug in nux, src/prelude.rs)")),
+        ));
+    }
+    source.push_str(&format!("}}\noverlay use {overlay}\n"));
+    source
+}
+
+/// Whether a command that code calls needs every command there is: it lists or looks up
+/// commands, so the stubs would show instead of the real ones.
+pub fn needs_everything(command: &str) -> bool {
+    let first = command.split_whitespace().next().unwrap_or("");
+    matches!(first, "help" | "scope" | "which" | "view")
 }
 
 /// `export use nux/git` gives ("git", false), `export use nux/servers *` ("servers", true).
@@ -109,27 +154,8 @@ fn preloaded_module(line: &str) -> Option<(&str, bool)> {
     }
 }
 
-/// The words of code as Nushell names commands: letters, digits, `_` and `-`. `git hunks`
-/// gives git, hunks; `^git` git; `--show` stays `--show`, a flag and not the command `show`.
-fn words(code: &str) -> Vec<String> {
-    code.split(|c: char| !(c.is_alphanumeric() || c == '_' || c == '-'))
-        .filter(|w| !w.is_empty())
-        .map(str::to_string)
-        .collect()
-}
-
-/// Code that needs every module: it loads a file nux does not see (`use`, `source`; not
-/// `use nux/...` or `use std...`), or asks which commands there are.
-fn needs_everything(words: &[String]) -> bool {
-    words.iter().enumerate().any(|(i, word)| match word.as_str() {
-        "use" => !matches!(words.get(i + 1).map(String::as_str), Some("nux" | "std" | "std-rfc")),
-        "source" | "source-env" | "overlay" | "help" | "scope" | "which" | "view" => true,
-        _ => false,
-    })
-}
-
 /// The commands a module exports, by their name in it (`from tsc`; `main` is the module's
-/// own name).
+/// own name). Read from the text: enough for the prelude's own modules.
 fn exported_names(text: &str, module: &str) -> Vec<String> {
     text.lines()
         .filter_map(|line| {
@@ -147,54 +173,29 @@ fn exported_names(text: &str, module: &str) -> Vec<String> {
         .collect()
 }
 
-/// Whether the words of a command's name come one after the other in `words`.
-fn mentions(words: &[String], command: &str) -> bool {
-    let name: Vec<&str> = command.split_whitespace().collect();
-    !name.is_empty() && words.windows(name.len()).any(|window| window.iter().zip(&name).all(|(a, b)| a == b))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    const PRELUDE: &str = "use nux/runners RUNNERS\nexport use nux/git\nexport use nux/servers *\nexport use nux/testing *\nexport def py [] {}\n";
-
-    #[test]
-    fn what_nux_adds_itself_is_always_loaded() {
-        let prelude = "export use nux/output *\nexport use nux/git\n";
-        let output = |name: &str| (name == "output").then(|| "export def check-exit [] {}\nexport def show [] {}\n".to_string());
-        assert_eq!(only_needed(prelude, "ls", output), "export use nux/output *\n");
-    }
-
     fn module(name: &str) -> Option<String> {
         match name {
+            "output" => Some("export def check-exit [] {}\nexport def show [] {}\n".into()),
             "servers" => Some("export def ports [] {}\nexport def --env \"wait-for\" [] {}\n".into()),
-            "testing" => Some("export def \"from tap\" []: any -> table {}\n".into()),
+            "git" => Some("export def --wrapped main [...arguments] {}\nexport def status [] {}\n".into()),
             _ => None,
         }
     }
 
-    fn kept(code: &str) -> Vec<String> {
-        only_needed(PRELUDE, code, module).lines().filter_map(|l| l.strip_prefix("export use nux/")).map(str::to_string).collect()
-    }
-
     #[test]
-    fn only_the_modules_the_code_names_are_loaded() {
-        assert_eq!(kept("ls | where size > 1mb"), Vec::<String>::new());
-        assert_eq!(kept("git status | get path"), ["git"]);
-        assert_eq!(kept("^git commit -m x"), ["git"]);
-        assert_eq!(kept("let f = {|| wait-for 8080 }\ndo $f"), ["servers *"]);
-        assert_eq!(kept("^node --test | complete | from tap"), ["testing *"]);
-        assert_eq!(kept("open x.json | from json"), Vec::<String>::new(), "`from` alone is not `from tap`");
-        assert_eq!(kept("ls | sort-by --reverse size"), Vec::<String>::new());
-    }
-
-    #[test]
-    fn code_that_loads_files_or_lists_commands_gets_everything() {
-        assert_eq!(kept("use .nu/d1.nu *\nd1 'select 1'"), ["git", "servers *", "testing *"]);
-        assert_eq!(kept("scope commands | length"), ["git", "servers *", "testing *"]);
-        assert_eq!(kept("use nux/cookie-jar\ncookie-jar new"), Vec::<String>::new());
-        assert_eq!(kept("use std/assert"), Vec::<String>::new());
+    fn modules_left_out_get_stubs() {
+        let prelude = "use nux/runners RUNNERS\nexport use nux/output *\nexport use nux/git\nexport use nux/servers *\nexport def py [] {}\n";
+        let (kept, later) = with_stubs(prelude, module);
+        let stubs: Vec<_> = later.iter().map(|l| (l.stub.as_str(), l.load.as_str())).collect();
+        assert_eq!(stubs, [("git", "use nux/git"), ("ports", "use nux/servers *"), ("wait-for", "use nux/servers *")]);
+        assert_eq!(kept, "use nux/runners RUNNERS\nexport use nux/output *\nexport def py [] {}\n", "check-exit, which nux adds itself, stays");
+        let source = stubs_source(&later, "nux-stubs");
+        assert!(source.contains("  export def --wrapped \"wait-for\" [...arguments]"), "{source}");
+        assert!(source.starts_with("module nux-stubs {\n") && source.ends_with("}\noverlay use nux-stubs\n"), "{source}");
     }
 }
 

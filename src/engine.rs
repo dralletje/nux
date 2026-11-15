@@ -7,8 +7,9 @@ use std::{
 };
 
 use nu_engine::{convert_env_values, eval_block};
+use nu_parser::FlatShape;
 use nu_protocol::{
-    Config, IntoValue, PipelineData, ShellError, Signals, Span, Type, UseAnsiColoring, Value, VarId,
+    BlockId, Config, IntoValue, PipelineData, ShellError, Signals, Span, Type, UseAnsiColoring, Value, VarId,
     ast::Block,
     debugger::WithoutDebug,
     engine::{EngineState, Stack, StateDelta, StateWorkingSet},
@@ -23,6 +24,11 @@ use crate::{
     rewrite::{nu_raw_string, statements, with_exit_checks},
     usage_log::Outcome,
 };
+
+/// The overlays with the stubs of modules not loaded yet (src/prelude.rs): the first from
+/// the start, the second for the ones still left out once code has loaded some.
+const STUBS_OVERLAY: &str = "nux-stubs";
+const STUBS_LEFT_OVERLAY: &str = "nux-stubs-left";
 
 /// Results longer than this (as printed) are kept instead of printed. The same limit
 /// Nushell's MCP server uses.
@@ -52,6 +58,8 @@ pub struct Nu {
     stack: Stack,
     /// Set when the prelude did not load: nux's own commands are missing then.
     pub prelude_problem: Option<String>,
+    /// Modules of the prelude not loaded yet, with a stub in their place (src/prelude.rs).
+    later: Vec<prelude::Later>,
 }
 
 /// An error, already put into words (a parse error refers to code that is not in the engine
@@ -80,9 +88,9 @@ enum Stopped {
 impl Nu {
     /// A fresh Nushell, as `nu -n` would be, without colors, with the prelude loaded.
     /// `include`: more module directories, from `try-nu -I` (joined like PATH).
-    /// `code`: the code this Nushell is for, to load only the parts of the prelude it uses;
-    /// without it, all of the prelude.
-    pub fn start(cwd: &Path, interrupt: Arc<AtomicBool>, include: Option<std::ffi::OsString>, code: Option<&str>) -> Result<Nu, String> {
+    /// `lazy`: load a module of the prelude only when code calls one of its commands (for
+    /// running code; `nux help` and `nux find` want all of them).
+    pub fn start(cwd: &Path, interrupt: Arc<AtomicBool>, include: Option<std::ffi::OsString>, lazy: bool) -> Result<Nu, String> {
         // TLS for `http` (https://): rustls needs a crypto provider chosen at startup, as `nu`
         // does in its main. Without it every https request fails.
         nu_command::tls::CRYPTO_PROVIDER.default();
@@ -125,16 +133,77 @@ impl Nu {
 
         // External commands at the end of a pipeline hand their output to nux, instead of
         // writing to the terminal.
-        let mut nu = Nu { engine, stack: stack.capture_all(), prelude_problem: None };
-        match prelude::install(&mut nu.engine, code) {
-            Ok(source) => {
-                if let Err(failure) = nu.run_source("nux-prelude", &source) {
-                    nu.prelude_problem = Some(failure.text);
+        let mut nu = Nu { engine, stack: stack.capture_all(), prelude_problem: None, later: Vec::new() };
+        match prelude::install(&mut nu.engine, lazy) {
+            Ok(prelude) => {
+                let stubs = prelude::stubs_source(&prelude.later, STUBS_OVERLAY);
+                let source = if prelude.later.is_empty() { prelude.source } else { format!("{}\n{stubs}", prelude.source) };
+                match nu.run_source("nux-prelude", &source) {
+                    Ok(_) => nu.later = prelude.later,
+                    Err(failure) => nu.prelude_problem = Some(failure.text),
                 }
             }
             Err(problem) => nu.prelude_problem = Some(problem),
         }
         Ok(nu)
+    }
+
+    /// Load the modules of the prelude that `code` needs (see `prelude::Later`). The code is
+    /// parsed once to see which stubs it calls: the blocks parsing made include closures and
+    /// the commands of files the code `use`s or `source`s, so those count too. Code that calls
+    /// `help`, `scope` or the like gets every module.
+    fn load_what_code_uses(&mut self, code: &str) {
+        if self.later.is_empty() {
+            return;
+        }
+        let called: HashSet<String> = {
+            let mut working_set = StateWorkingSet::new(&self.engine);
+            let first_new_block = working_set.permanent_state.num_blocks();
+            let top = nu_parser::parse(&mut working_set, Some(CODE_FILE), code.as_bytes(), false);
+            // The block parse gives is not among the blocks it adds (closures, functions).
+            // What the prelude's own modules call does not count (git.nu calls `help`).
+            let in_prelude = |block: &Block| {
+                block.span.and_then(|span| working_set.find_file_by_span(span)).is_some_and(|file| file.name.starts_with("nux/"))
+            };
+            let added = (first_new_block..working_set.num_blocks())
+                .map(|id| working_set.get_block(BlockId::new(id)).clone())
+                .filter(|block| !in_prelude(block));
+            std::iter::once(top)
+                .chain(added)
+                .collect::<Vec<_>>()
+                .iter()
+                .flat_map(|block| nu_parser::flatten_block(&working_set, block))
+                .filter_map(|(_, shape)| match shape {
+                    FlatShape::InternalCall(decl_id) => Some(working_set.get_decl(decl_id).name().to_string()),
+                    _ => None,
+                })
+                .collect()
+        };
+        let everything = called.iter().any(|name| prelude::needs_everything(name));
+        // Code that loads a module of the prelude itself (`use nux/git`) needs it loaded first:
+        // the stubs must be gone while it is parsed.
+        let used_by_name = |later: &prelude::Later| later.load.split_whitespace().nth(1).is_some_and(|module| code.contains(module));
+        let (load, later): (Vec<_>, Vec<_>) = std::mem::take(&mut self.later)
+            .into_iter()
+            .partition(|l| everything || called.contains(&l.stub) || used_by_name(l));
+        self.later = later;
+        if load.is_empty() {
+            return;
+        }
+        // The stubs out of the way first (see prelude::Later), then the modules, then stubs
+        // again for the ones still left out.
+        let mut lines = vec![format!("overlay hide {STUBS_OVERLAY}")];
+        for l in &load {
+            if !lines.contains(&l.load) {
+                lines.push(l.load.clone());
+            }
+        }
+        if !self.later.is_empty() {
+            lines.push(prelude::stubs_source(&self.later, STUBS_LEFT_OVERLAY));
+        }
+        if let Err(failure) = self.run_source("nux-prelude", &lines.join("\n")) {
+            self.prelude_problem = Some(failure.text);
+        }
     }
 
     /// Parse code without running it. Gives the block, what parsing added to the engine, and
@@ -183,6 +252,7 @@ impl Nu {
     /// Run an agent's code the way nux promises (see `nux help`): external commands at the top
     /// level are completed, so that their output and exit code are seen.
     fn evaluate(&mut self, code: &str, input: PipelineData) -> Result<Evaluated, Stopped> {
+        self.load_what_code_uses(code);
         let (block, delta, base) = self.parse(CODE_FILE, code).map_err(Stopped::Failed)?;
         let checked = with_exit_checks(code, &statements(&block, base), self.prelude_problem.is_none());
         let (block, delta, last_command, insertions) = if checked.changed {

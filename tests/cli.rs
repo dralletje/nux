@@ -172,6 +172,30 @@ fn http_works() {
     assert_eq!((run.status, run.stdout.as_str()), (0, "2\n"), "{}", run.stdout);
 }
 
+/// A module of the prelude is loaded when code calls one of its commands (src/prelude.rs):
+/// in a closure, in a file of its own that the code uses, or with `use nux/<module>`. A
+/// command of a module that is not loaded is still known, for "Did you mean".
+#[test]
+fn modules_load_when_code_calls_them() {
+    let run = nux(&[], "let f = {|| 'x' | from tap }\ntry { do $f } catch {|e| $e.msg }");
+    assert!(run.stdout.contains("this is not TAP"), "{}{}", run.stdout, run.stderr);
+
+    let dir = scratch().join(format!("lazy-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("mine.nu"), "export def lines-of-tap [] { 'ok 1 - a' | from tap | length }\n").unwrap();
+    let run = nux(&[], &format!("use '{}' *\nlines-of-tap", dir.join("mine.nu").display()));
+    assert_eq!((run.status, run.stdout.as_str()), (0, "1\n"), "{}{}", run.stdout, run.stderr);
+
+    let run = nux(&[], "use nux/browser\nscope commands | where name == 'browser do' | length");
+    assert_eq!((run.status, run.stdout.as_str()), (0, "1\n"), "{}{}", run.stdout, run.stderr);
+
+    let run = nux(&[], "wait_for 1");
+    assert!(run.stdout.contains("Did you mean `wait-for`?"), "{}", run.stdout);
+    // Also once another module has been loaded.
+    let run = nux(&[], "'ok 1 - a' | from tap | length\nwait_for 1");
+    assert!(run.stdout.contains("Did you mean `wait-for`?"), "{}", run.stdout);
+}
+
 /// The modules that are not preloaded load with `use nux/<name>` and give their commands
 /// under that name, without `*`; `edit-file` is preloaded. cookie-jar against a server of the
 /// test's own: a login that sets a cookie and redirects, then a page that shows the cookie.
