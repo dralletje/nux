@@ -181,6 +181,9 @@ PYTHON AND JAVASCRIPT
       '#
       open config.yaml --raw | js 'require("yaml").parse(data)'
       NU
+  More values go in by name with --with, instead of into the code's text: each key is
+  defined in the code under that name, next to `data`:
+      ls | js --with {limit: 1kb} 'data.filter((f) => f.size.bytes > limit.bytes).length'
   Values keep their type both ways: datetime, duration, filesize, binary, record, table.
   In `js` a datetime is a Temporal.ZonedDateTime, a duration a Temporal.Duration, and a file
   size a Nu.FileSize (`.bytes`, `.kb`, `.mb`, `.gb`). `js` needs Node 26 or newer, finds

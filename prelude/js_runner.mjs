@@ -1,8 +1,9 @@
 /// Runs JavaScript code for the `js` command of nux (see prelude.nu).
 ///
-///     node js_runner.mjs <code>     with the input as NUON on stdin
+///     node js_runner.mjs <code>     with {data: <input>, with: <record>} as NUON on stdin
 ///
-/// The input is available to the code as `data`, and `Nu.FileSize` makes a file size. Needs
+/// The input is available to the code as `data`, each key of `with` (from `js --with`) as a
+/// global of that name, and `Nu.FileSize` makes a file size. Needs
 /// Node 26 or newer, for Temporal. The value of the last expression is written to stdout as
 /// NUON (see nuon.mjs); a promise is awaited first. Code that uses `await` at the
 /// top level is run as the body of an async function instead, and then gives its value with
@@ -100,11 +101,13 @@ const main = async () => {
   const raw = await read_stdin();
   let text;
   try {
+    const sent = raw.trim() === "" ? {} : loads(raw);
     Object.assign(globalThis, {
-      data: raw.trim() === "" ? null : loads(raw),
+      data: sent.data ?? null,
       require: require_from_cwd,
       Nu,
       console: new Console(process.stderr, process.stderr),
+      ...(sent.with ?? {}),
     });
     text = dumps(await run(code));
   } catch (error) {

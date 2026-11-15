@@ -431,6 +431,24 @@ fn from_tsc_reads(version: &str) {
 }
 
 
+/// `py --with` and `js --with`: each key is defined in the code under its name, with its type,
+/// next to `data` (the pipeline input), which stays. Without --with, nothing changes; with
+/// nothing piped, `data` is null.
+#[test]
+fn with_defines_values_by_name() {
+    let run = nux(
+        &[],
+        "let limit = 2kb\nlet when = 2026-01-31T10:00:00+01:00\n{\n  py: ([1 2 3] | py --with {limit: $limit, when: $when, n: 2} '[len(data), limit, when.year, n * 2]')\n  js: ([1 2 3] | js --with {limit: $limit, when: $when, n: 2} '[data.length, limit.bytes, when.year, n * 2]')\n}",
+    );
+    // Python's file size is an int that stays a file size on the way back.
+    assert_eq!(run.stdout, "{py:[3,2000b,2026,4],js:[3,2000,2026,4]}\n", "{}{}", run.stdout, run.stderr);
+    let run = nux(&[], "{py: (py --with {files: [a b]} '[data, len(files)]'), js: (js --with {files: [a b]} '[data, files.length]')}");
+    assert_eq!(run.stdout, "{py:[null,2],js:[null,2]}\n", "{}{}", run.stdout, run.stderr);
+    // The pipeline input as a value of its own name.
+    let run = nux(&[], "[1 2 3] | js --with {numbers: $in} 'numbers.length'");
+    assert_eq!(run.stdout, "3\n", "{}{}", run.stdout, run.stderr);
+}
+
 /// Ranges into `py` and `js`: counting down and in steps too (Nushell writes those as
 /// `start..next..end`), with or without the end itself.
 #[test]

@@ -25,11 +25,22 @@ def run-code [
   runner: string   # file name of the runner next to this file
   code: string
   code_span: record
+  with: record     # more values, each defined in the code under its key
 ]: any -> any {
   let input = $in
   # A polars frame cannot be written as NUON (and the error cannot be caught): take its rows.
-  let input = if ($input | describe) =~ '^polars_' { $input | polars into-nu } else { $input }
-  let run = ($input | to nuon --raw --serialize | run-external $program ($RUNNERS | path join $runner) $code | complete)
+  let as_rows = {|value|
+    if ($value | describe) =~ '^polars_' {
+      $value | polars into-nu
+    } else {
+      $value
+    }
+  }
+  let input = (do $as_rows $input)
+  let with = ($with | items {|name, value| {$name: (do $as_rows $value)} } | reduce --fold {} {|it, all| $all | merge $it })
+  # The input and the values of --with go to the runner together, as one record.
+  let sent = ({data: $input, with: $with} | to nuon --raw --serialize)
+  let run = ($sent | run-external $program ($RUNNERS | path join $runner) $code | complete)
   if $run.exit_code != 0 {
     let lines = ($run.stderr | str trim | lines)
     error make {
@@ -52,17 +63,22 @@ def run-code [
 # DataFrames. A polars dataframe as input is converted to rows first.
 # What the code prints is shown, and is not part of the result.
 #
+# With --with {name: value}, each key is also defined in the code under that name, with the
+# value's type, so a value need not be put into the code's text.
+#
 # Each call is a new Python process: nothing stays defined in Python between calls.
 @example "An expression on the input" { [1 2 3] | py 'sum(data)' }
+@example "Values by name" { let limit = 1kb; ls | py --with {limit: $limit} '[f["name"] for f in data if f["size"] > limit]' }
 @example "Several lines go in a raw string" { py r#'
 import datetime
 datetime.date.today()
 '# }
 @example "A table in, a table out" { ls | select name size | py '[r for r in data if r["size"] > 1000]' }
 export def py [
-  code: string # Python code. Its last expression, or the variable `result`, is the value.
+  code: string         # Python code. Its last expression, or the variable `result`, is the value.
+  --with: record = {}  # Values to define in the code, each under its key: {limit: $limit}
 ]: any -> any {
-  $in | run-code Python ($env.NUX_PYTHON? | default "python3") py_runner.py $code (metadata $code).span
+  $in | run-code Python ($env.NUX_PYTHON? | default "python3") py_runner.py $code (metadata $code).span $with
 }
 
 # Run JavaScript code (Node) on the pipeline input and get a Nushell value back.
@@ -83,8 +99,12 @@ export def py [
 # int, also when it was a float going in. Needs Node 26 or newer.
 # What the code logs with console.log is shown, and is not part of the result.
 #
+# With --with {name: value}, each key is also defined in the code under that name, with the
+# value's type, so a value need not be put into the code's text.
+#
 # Each call is a new Node process: nothing stays defined in JavaScript between calls.
 @example "An expression on the input" { [1 2 3] | js 'data.reduce((a, b) => a + b, 0)' }
+@example "Values by name" { let limit = 1kb; ls | js --with {limit: $limit} 'data.filter((f) => f.size.bytes > limit.bytes).map((f) => f.name)' }
 @example "A package of the project, several lines in a raw string" { open config.yaml --raw | js r#'
 const { parse } = require("yaml");
 parse(data)
@@ -95,9 +115,10 @@ const response = await fetch("https://example.com");
 return response.status
 '# }
 export def js [
-  code: string # JavaScript code. Its last expression (or `return`, with await) is the value.
+  code: string         # JavaScript code. Its last expression (or `return`, with await) is the value.
+  --with: record = {}  # Values to define in the code, each under its key: {limit: $limit}
 ]: any -> any {
-  $in | run-code JavaScript ($env.NUX_NODE? | default "node") js_runner.mjs $code (metadata $code).span
+  $in | run-code JavaScript ($env.NUX_NODE? | default "node") js_runner.mjs $code (metadata $code).span $with
 }
 
 # Search file contents with ripgrep and get the matches as a table.
