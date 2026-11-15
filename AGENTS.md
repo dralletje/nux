@@ -24,5 +24,13 @@ way, and a debug build would build them all again. Do not change `rust-toolchain
 Every change gets a test in `tests/cli.rs` (nux run as a process, as an agent uses it) or
 next to the code. Check a test catches the bug: it should fail without the fix.
 
+## Writing prelude commands
+
+A command that gives a table gives every column in every row, with null where a row has
+nothing (`git status`: `staged: null`). Agents filter with `where staged != null`, and a
+column missing from some rows is an error there, unless they remember `staged?`, which they
+do not. The same for records that come in lists. `tests/cli.rs` checks this for the table
+commands (`table_commands_give_every_column_in_every_row`); add a new one there.
+
 `nux help` (src/help.txt) is the manual agents read. When behaviour changes, change it too,
 and run its examples: they must work as written.

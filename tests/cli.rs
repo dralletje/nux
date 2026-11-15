@@ -277,6 +277,38 @@ fn nux_in(dir: &std::path::Path, code: &str) -> Run {
     }
 }
 
+/// nux's table commands give every column in every row (null where there is nothing), so that
+/// `where column != null` works without `column?` (AGENTS.md). On a repository with a staged,
+/// an unstaged, a deleted and an untracked file, and on tsc and TAP output with different kinds
+/// of rows.
+#[test]
+fn table_commands_give_every_column_in_every_row() {
+    let repo = git_repo("columns");
+    std::fs::write(repo.join("new.txt"), "new\n").unwrap();
+    let code = r##"^git add README.md
+let tsc = "a.ts(1,7): error TS2322: Type 'string' is not assignable to type 'number'.\nerror TS5083: Cannot read file 'tsconfig.json'.\n"
+let tap = "TAP version 13\nok 1 - first\nnot ok 2 - second\n  ---\n  error: boom\n  ...\n1..2\n"
+let tables = {
+  "git status": (git status)
+  "git diff": (git diff)
+  "git diff --lines": (git diff --lines)
+  "git log --files --body": (git log --files --body)
+  "search": (search 'one|old|dots' .)
+  "search -C 1": (search 'two' . -C 1)
+  "search --files": (search 'o' . --files)
+  "ports": (try { ports } catch { [] })
+  "from tsc": ($tsc | from tsc)
+  "from tap": ($tap | from tap)
+}
+$tables
+| transpose command rows
+| where {|t| ($t.rows | each { columns | str join ',' } | uniq | length) > 1 }
+| get command
+| to nuon"##;
+    let run = nux_in(&repo, code);
+    assert_eq!((run.status, run.stdout.as_str()), (0, "[]\n"), "commands with rows of different columns: {}{}", run.stdout, run.stderr);
+}
+
 /// `git status | git add` stages what is left, also when a deletion is already staged (git
 /// does not find that file any more).
 #[test]
