@@ -101,3 +101,44 @@ than that, and version 2 needs its traps known by whoever changes it.
 If it comes back, a middle way: version 1 plus only the typo hint, done by nux itself: after a
 "command not found", compare the name with the commands of the modules not loaded and add
 "Did you mean ...".
+
+## Idea, not tried: signatures from build time
+
+Nushell parses a `use`d module completely while parsing the code that uses it: its `def`s,
+their bodies, its `@example` blocks, and the modules it uses in turn. It has to, because a call
+cannot be parsed without the command's signature (flags, whether `{...}` is a closure or a
+record, positional arguments). Before parsing a block it also collects the `def`s in it (a
+pre-pass that reads only names and signatures), which is why a command can be called above its
+definition. That pre-pass is cheap; the bodies and examples are what take the 26 ms. Doing
+only the pre-pass at build time would therefore save little.
+
+What build time can give is what the stubs lacked: every command's full signature (flags,
+types, description, examples). `nu_protocol::Signature` can be serialized, so `build.rs` could
+parse the prelude once and store the signatures in the binary. Then:
+
+1. At startup nux registers every prelude command as a small Rust `Command` with its real
+   signature: nothing is parsed, so a call costs about the 15 ms without prelude.
+2. The code is parsed once, exactly: with the real signatures, flags, closures and
+   `@example` blocks parse as they should, and `help <command>`, `nux find` and "Did you mean"
+   work. None of the stub traps (no second parse, no overlays, no block-into-stub errors).
+3. When such a command runs, it parses its module and hands the call to the real command.
+
+Step 3 is the hard part. `Command::run` gets `&EngineState`, so it cannot add the module's
+commands to the engine. It would parse the module into a clone of the engine (`EngineState`
+is mostly `Arc`s, so a clone is cheap), find the real declaration there, and run it with the
+same call, pipeline input and stack. Questions to settle first:
+
+- whether the call's arguments (spans and blocks in the original engine) evaluate correctly
+  against the clone, also for closures passed in (`browser do { ... }`, `with-session`);
+- environment changes made by a command (`def --env`): the stack is shared, so probably fine;
+- caching: the second call of a module's commands in the same process should not parse it
+  again (a `OnceLock` in the command, holding the parsed clone, but the engine may have
+  changed in between: new `def`s in the code);
+- errors: spans in the module must still point into the right file for `in nux/git, line 3`;
+- build time: `build.rs` would need nu-parser and the other Nushell crates as
+  build-dependencies, and the stored signatures must match the commands exactly
+  (a test that compares them with a full parse at runtime).
+
+Expected complexity: at least that of version 2. A cheap first step before building it:
+measure how much of the 26 ms is the `def` pre-pass and how much the bodies and examples, to
+know what there is to gain.
