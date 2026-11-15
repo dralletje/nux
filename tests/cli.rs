@@ -277,6 +277,16 @@ fn nux_in(dir: &std::path::Path, code: &str) -> Run {
     }
 }
 
+/// `search` takes paths as paths: `~` is the home directory.
+#[test]
+fn search_expands_the_home_directory() {
+    let home = scratch().join(format!("home-{}", std::process::id()));
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::write(home.join("note.txt"), "needle\n").unwrap();
+    let run = nux_with(&[], "search needle ~/note.txt | length", &[("HOME", home.as_path())]);
+    assert_eq!((run.status, run.stdout.as_str()), (0, "1\n"), "{}{}", run.stdout, run.stderr);
+}
+
 /// nux's table commands give every column in every row (null where there is nothing), so that
 /// `where column != null` works without `column?` (AGENTS.md). On a repository with a staged,
 /// an unstaged, a deleted and an untracked file, and on tsc and TAP output with different kinds

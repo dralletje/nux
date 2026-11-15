@@ -112,7 +112,7 @@ export def js [
 @example "With two lines around each match (the column `hit` is true for the matching lines)" { search panic --context 2 }
 export def search [
   pattern: string     # Regular expression (Rust syntax); plain text with --literal
-  ...paths: string    # Files or directories to search (default: the current directory)
+  ...paths: path      # Files or directories to search (default: the current directory)
   --literal (-F)      # Take the pattern as plain text
   --ignore-case (-i)  # Do not tell upper and lower case apart
   --glob (-g): string # Only files matching this glob, e.g. '*.ts' or '!*.test.ts'
