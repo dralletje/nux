@@ -156,6 +156,15 @@ COMMANDS THAT GIVE TABLES   (examples for each: nux help <command>)
   `git commit` or `git status --short`, is an error: git itself is `^git`, as in
   `^git commit -m "..."`. pnpm, docker and the rest work as in any shell: `pnpm build`.
 
+  Also there, for text: `edit-file <path> <old> <new>` replaces exact text and fails when it
+  is not there exactly once (a table of old/new: several edits, all or nothing).
+
+  With `use` first (nux help <command> after it):
+      use nux/cookie-jar                    http calls that keep cookies, like a browser (a login):
+                                            cookie-jar new, cookie-jar http, ...
+      use nux/capped                        an external command under a hard memory and time
+                                            limit: capped --mem 1GB --time 1min pnpm build
+
 OTHER TOOLS ALREADY SPEAK JSON
   Ask for it and parse it:
       ^docker ps --format json | from json --objects       (also: images, volume ls, ...)

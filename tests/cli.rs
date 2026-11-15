@@ -172,6 +172,52 @@ fn http_works() {
     assert_eq!((run.status, run.stdout.as_str()), (0, "2\n"), "{}", run.stdout);
 }
 
+/// The modules that are not preloaded load with `use nux/<name>` and give their commands
+/// under that name, without `*`; `edit-file` is preloaded. cookie-jar against a server of the
+/// test's own: a login that sets a cookie and redirects, then a page that shows the cookie.
+#[test]
+fn modules_to_use_and_edit_file() {
+    use std::io::{Read, Write as _};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        for stream in listener.incoming().take(2) {
+            let mut stream = stream.unwrap();
+            let mut request = [0u8; 4096];
+            let read = stream.read(&mut request).unwrap_or(0);
+            let request = String::from_utf8_lossy(&request[..read]).to_string();
+            if request.starts_with("POST /login") {
+                let _ = write!(stream, "HTTP/1.1 303 See Other\r\nLocation: /me\r\nSet-Cookie: session=abc; Path=/\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+            } else {
+                let cookie = request.lines().find_map(|l| l.strip_prefix("cookie: ").or(l.strip_prefix("Cookie: "))).unwrap_or("none").to_string();
+                let _ = write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{cookie}", cookie.len());
+            }
+        }
+    });
+    let run = nux(
+        &[],
+        &format!(
+            "use nux/cookie-jar\nlet jar = (cookie-jar new)\ncookie-jar http $jar post http://127.0.0.1:{port}/login {{a: 1}} -t application/json | get body\n"
+        ),
+    );
+    assert_eq!((run.status, run.stdout.as_str()), (0, "session=abc\n"), "{}{}", run.stdout, run.stderr);
+
+    // Nushell's own `update` and `http` are untouched by `use nux/cookie-jar`.
+    let run = nux(&[], "use nux/cookie-jar\nuse nux/capped\n[{a: 1}] | update a 2 | get a.0");
+    assert_eq!((run.status, run.stdout.as_str()), (0, "2\n"), "{}{}", run.stdout, run.stderr);
+    let run = nux(&[], "use nux/capped\ncapped");
+    assert!(run.stdout.contains("capped: no command given"), "{}{}", run.stdout, run.stderr);
+
+    let file = scratch().join(format!("edit-file-{}.txt", std::process::id()));
+    std::fs::write(&file, "let a = 1\nlet b = 1\n").unwrap();
+    let run = nux(&[], &format!("edit-file '{}' 'let a = 1' 'let a = 2' | get replacements", file.display()));
+    assert_eq!((run.status, run.stdout.as_str()), (0, "1\n"), "{}{}", run.stdout, run.stderr);
+    let run = nux(&[], &format!("edit-file '{}' ' = ' ' := '", file.display()));
+    assert_eq!(run.status, 1, "{}", run.stdout);
+    assert!(run.stdout.contains("matches 2 times"), "{}", run.stdout);
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "let a = 2\nlet b = 1\n");
+}
+
 /// https needs a TLS crypto provider set at startup. Without one the request fails before it
 /// connects; with one it fails on the connection (nothing listens on port 1).
 #[test]
