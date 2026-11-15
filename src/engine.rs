@@ -80,7 +80,9 @@ enum Stopped {
 impl Nu {
     /// A fresh Nushell, as `nu -n` would be, without colors, with the prelude loaded.
     /// `include`: more module directories, from `try-nu -I` (joined like PATH).
-    pub fn start(cwd: &Path, interrupt: Arc<AtomicBool>, include: Option<std::ffi::OsString>) -> Result<Nu, String> {
+    /// `code`: the code this Nushell is for, to load only the parts of the prelude it uses;
+    /// without it, all of the prelude.
+    pub fn start(cwd: &Path, interrupt: Arc<AtomicBool>, include: Option<std::ffi::OsString>, code: Option<&str>) -> Result<Nu, String> {
         // TLS for `http` (https://): rustls needs a crypto provider chosen at startup, as `nu`
         // does in its main. Without it every https request fails.
         nu_command::tls::CRYPTO_PROVIDER.default();
@@ -124,7 +126,7 @@ impl Nu {
         // External commands at the end of a pipeline hand their output to nux, instead of
         // writing to the terminal.
         let mut nu = Nu { engine, stack: stack.capture_all(), prelude_problem: None };
-        match prelude::install(&mut nu.engine) {
+        match prelude::install(&mut nu.engine, code) {
             Ok(source) => {
                 if let Err(failure) = nu.run_source("nux-prelude", &source) {
                     nu.prelude_problem = Some(failure.text);
