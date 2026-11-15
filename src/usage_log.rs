@@ -91,15 +91,9 @@ pub fn start(start: Start) {
         "at": now(),
         "kind": start.kind,
         "argv": start.argv,
-        // There are no sessions; the fields stay for nux-log.
-        "session": null,
-        "session_named": false,
         "cwd": start.cwd,
         "code": start.code,
         "reason": start.reason,
-        // No such options here (no time limit, no --json); the fields stay for nux-log.
-        "timeout_seconds": null,
-        "json": false,
         "conversation": std::env::var("CLAUDE_CODE_SESSION_ID").ok(),
         "pid": std::process::id(),
         // Which nux wrote this: the TypeScript one has no such field.

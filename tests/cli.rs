@@ -26,9 +26,10 @@ fn nux_with(args: &[&str], code: &str, env: &[(&str, &std::path::Path)]) -> Run 
     let dir = scratch();
     let mut child = Command::new(env!("CARGO_BIN_EXE_nux"))
         .args(args)
-        .envs(env.iter().map(|(k, v)| (*k, *v)))
         .env("NUX_LOG_DIR", dir.join("log"))
         .env("NUX_DIR", dir.join("nux"))
+        // Last, so that a test can override the two above.
+        .envs(env.iter().map(|(k, v)| (*k, *v)))
         .current_dir(&dir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -137,6 +138,34 @@ fn the_prelude_comes_from_the_binary() {
     let run = nux(&[], "[1 2 3] | py 'sum(data)'");
     assert_eq!((run.status, run.stdout.as_str()), (0, "6\n"), "{}{}", run.stdout, run.stderr);
     assert!(dir.join("browser/mod.nu").exists());
+}
+
+/// `http` against a server of the test's own (no network needed): JSON comes back parsed.
+#[test]
+fn http_works() {
+    use std::io::{Read, Write as _};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        for stream in listener.incoming().take(1) {
+            let mut stream = stream.unwrap();
+            let mut request = [0u8; 4096];
+            let _ = stream.read(&mut request);
+            let body = r#"{"name":"nux","n":2}"#;
+            let _ = write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+        }
+    });
+    let run = nux(&[], &format!("http get http://127.0.0.1:{port}/ | get n"));
+    assert_eq!((run.status, run.stdout.as_str()), (0, "2\n"), "{}", run.stdout);
+}
+
+/// https needs a TLS crypto provider set at startup. Without one the request fails before it
+/// connects; with one it fails on the connection (nothing listens on port 1).
+#[test]
+fn https_has_a_crypto_provider() {
+    let run = nux(&[], "http get https://127.0.0.1:1/");
+    assert_eq!(run.status, 1);
+    assert!(!run.stdout.contains("crypto provider"), "{}", run.stdout);
 }
 
 #[test]
@@ -317,4 +346,27 @@ fn every_call_is_in_the_usage_log() {
         .collect();
     assert!(lines.contains("\"reason\":\"testing the log\""));
     assert!(lines.contains("\"text\":\"42\""));
+}
+
+/// `nux-log` reads the log back: `runner` says which nux, and a line cut short (a write
+/// that failed halfway) is left out instead of breaking it.
+#[test]
+fn nux_log_reads_the_log_back() {
+    let dir = scratch().join(format!("log-read-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let day = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    std::fs::write(
+        dir.join(format!("{day}.jsonl")),
+        format!(
+            "{{\"event\":\"start\",\"id\":\"ts-1\",\"at\":\"{day}T00:00:01.000Z\",\"kind\":\"eval\",\"argv\":[],\"session\":\"s\",\"session_named\":false,\"cwd\":\"/\",\"code\":\"1\",\"reason\":null,\"timeout_seconds\":100,\"json\":false,\"conversation\":null,\"pid\":1}}\n\
+             {{\"event\":\"end\",\"id\":\"ts-1\",\"at\":\"{day}T00:00:02.000Z\",\"duration_ms\":5,\"ok\":true,\"outcome\":\"ok\",\"error_code\":null,\"text\":\"1\"}}\n\
+             {{\"event\":\"start\",\"id\":\"cut-sh\n"
+        ),
+    )
+    .unwrap();
+    let run = nux_with(&["-r", "read back"], "nux-log --since 2day | select runner kind outcome reason", &[("NUX_LOG_DIR", dir.as_path())]);
+    assert_eq!(run.status, 0, "{}{}", run.stdout, run.stderr);
+    // The TypeScript line (no runner), and this call itself (still running while it reads).
+    assert!(run.stdout.contains("[nux-ts,eval,ok,null]"), "{}", run.stdout);
+    assert!(run.stdout.contains(&format!("[\"nux-rs {}\",eval,unfinished,\"read back\"]", env!("CARGO_PKG_VERSION"))), "{}", run.stdout);
 }

@@ -13,7 +13,8 @@ use session.nu with-session
 # to the closure, and what the closure returns comes back.
 #
 # Starting a browser takes a few seconds, so do everything you want from it in one closure.
-# For a browser that stays open between calls, start a session yourself (`nux help browser`).
+# For a browser that stays open between calls, start a browser session yourself
+# (`nux help browser`).
 @search-terms playwright chromium page web
 @example "Look at one page" { browser do { browser navigate http://localhost:8888/ | select url status title failed_requests } }
 @example "Check a list of pages with one browser" { [/ /about /contact] | browser do { each {|path| browser navigate $"http://localhost:8888($path)" | select url status title } } }

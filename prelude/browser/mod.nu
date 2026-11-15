@@ -23,7 +23,9 @@ export use do.nu
 # A session has to be running. For one piece of work, `browser do { ... }` starts one and
 # closes it afterwards. For a browser that stays open between calls (a login, a page you
 # come back to), start it once as a BACKGROUND shell command (not in nux),
-# `browser serve <name>`, and tell this session its name: `$env.BROWSER_SESSION = "<name>"`.
+# `browser serve <name>`, and name it in every call that uses it: `browser --session <name> ...`
+# (or `$env.BROWSER_SESSION = "<name>"` at the top of the call; it does not carry over to the
+# next call, like everything else).
 # When you just want to look at a page yourself, the tool's own text report is easier to
 # read: use it from the shell. This command is for filtering and for many pages at once.
 @search-terms playwright chromium page web
@@ -44,7 +46,7 @@ export def main [
   if ($name | is-empty) {
     error make {
       msg: "No browser session named"
-      help: $"For one piece of work: browser do { browser ($operation) ... }\nFor a browser that stays open, start one as a background shell command \(not in nux\): ($tool) serve <name>\nThen: $env.BROWSER_SESSION = \"<name>\"   \(or pass --session <name>\)"
+      help: $"For one piece of work: browser do { browser ($operation) ... }\nFor a browser that stays open, start one as a background shell command \(not in nux\): ($tool) serve <name>\nThen in every call that uses it: browser --session <name> ($operation) ...   \(or $env.BROWSER_SESSION = \"<name>\" at the top of that call: nothing carries over between calls\)"
     }
   }
   let flags = [--json] ++ (if $quiet { [--quiet] } else { [] })

@@ -40,7 +40,8 @@ target/release/nux <<< 'ls | length'
   `runner` field), so `nux-log` reads both.
 - `prelude/`: copied from `packages/nux-cli/prelude`. Found at `$NUX_PRELUDE_DIR`, else in
   this source tree.
-- `src/guide.md`: Nushell's own guide for agents (from the `nu-mcp` crate), for `nux guide`.
+- `src/guide.md`: `nux guide`, how to write Nushell well. Adapted from the guide Nushell's
+  MCP server gives agents (`nu-mcp` crate, MIT), with what is about that server taken out.
 
 Dependency versions come from Nushell 0.117's own `Cargo.lock` (copied as the starting
 point): cargo's own choice took a pre-release of `notify` that does not compile.

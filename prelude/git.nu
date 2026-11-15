@@ -1,6 +1,6 @@
 # git, with tables as results. git itself has no structured output.
 #
-# In a session, `git` is this module: `git log`, `git status`, `git diff`, `git hunks`,
+# In nux, `git` is this module: `git log`, `git status`, `git diff`, `git hunks`,
 # `git info`, `git add` (and `git changes`, another name for `git diff`). Anything else
 # (`git commit`, `git status --short`) does not fall through to git itself: `git` refuses it
 # and says to use `^git`, so a call never gets git's text where it expected a table. The
@@ -78,7 +78,7 @@ def run-git [arguments: list<string>]: nothing -> string {
 const STATES = {M: modified, A: added, D: deleted, R: renamed, C: copied, U: unmerged, T: "type changed"}
 
 # Paths in git's output are from the repository's root; ours are from the current directory,
-# like every other path in a session (`open`, `ls`, `git add`). `--relative` would also
+# like every other path in nux (`open`, `ls`, `git add`). `--relative` would also
 # leave out what is outside the current directory, so the conversion is done here.
 
 # Where the current directory is in the repository: its path from the root, in parts ([] at

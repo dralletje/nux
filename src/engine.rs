@@ -80,6 +80,9 @@ enum Stopped {
 impl Nu {
     /// A fresh Nushell, as `nu -n` would be, without colors, with the prelude loaded.
     pub fn start(cwd: &Path, interrupt: Arc<AtomicBool>) -> Result<Nu, String> {
+        // TLS for `http` (https://): rustls needs a crypto provider chosen at startup, as `nu`
+        // does in its main. Without it every https request fails.
+        nu_command::tls::CRYPTO_PROVIDER.default();
         let mut engine = nu_cmd_lang::create_default_context();
         engine = nu_command::add_shell_command_context(engine);
         engine = nu_cmd_extra::add_extra_command_context(engine);

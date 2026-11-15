@@ -160,7 +160,8 @@ MORE YOU CAN DO WITH A TABLE
 LOOK THINGS UP   (Nushell changes between versions; check before guessing)
       nux find <word>         commands whose name or description mentions the word
       nux help <command>      usage, flags and examples, e.g.: nux help str replace
-      nux guide               Nushell's own guide for agents (long, read it once)
+      nux guide               how to write Nushell well: strings, redirection, bash to
+                              Nushell, http, parallelism, jobs (read it once)
 
 GOOD TO KNOW
   - A failed call prints the error with its place in the code and exits with status 1.
