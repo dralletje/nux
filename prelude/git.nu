@@ -459,7 +459,8 @@ export def changes [
 # `git status` and `git changes` give, or a list of paths (`git status | get path`). All
 # paths are from the current directory, as those commands give them. Paths from the
 # pipeline are taken exactly as written; as arguments, globs work as git reads them.
-# A deleted file is staged as deleted. An empty list or table stages nothing.
+# A deleted file is staged as deleted. Rows of `git status` that are already staged
+# entirely are skipped. An empty list or table stages nothing.
 @search-terms stage index
 @example "Stage everything that is modified, not what is new" { git status | where unstaged == modified | git add }
 @example "Stage some files" { git add src/cli.ts src/help.ts }
@@ -469,9 +470,14 @@ export def add [
   --all (-A)       # Everything: changed, deleted and untracked files
 ]: [nothing -> table, list<string> -> table, table -> table] {
   let input = $in
-  # Rows of our tables, or plain paths; as written, no globs (`:(literal)`).
+  # Rows of our tables, or plain paths; as written, no globs (`:(literal)`). A row of
+  # `git status` without unstaged changes has nothing to stage, and git would not find a
+  # file whose deletion is already staged: skipped.
   let from_pipeline = if $input == null { [] } else {
     $input
+    | where {|item|
+        ($item | describe) !~ '^record' or ("unstaged" not-in ($item | columns)) or $item.unstaged != null
+      }
     | each {|item| if ($item | describe) =~ '^record' { $item.path } else { $item } }
     | each {|path| $":\(literal\)($path)" }
   }

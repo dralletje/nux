@@ -146,8 +146,8 @@ fn the_prelude_comes_from_the_binary() {
     let run = nux("[1 2 3] | py 'sum(data)'");
     assert_eq!((run.status, run.stdout.as_str()), (0, "6\n"), "{}{}", run.stdout, run.stderr);
 
-    // The prelude's modules can be loaded by name, also the ones in a folder of their own.
-    let run = nux("use nux/browser; scope commands | where name == 'browser do' | length");
+    // The prelude's modules can be loaded by name.
+    let run = nux("use nux/cookie-jar; scope commands | where name == 'cookie-jar new' | length");
     assert_eq!((run.status, run.stdout.as_str()), (0, "1\n"), "{}{}", run.stdout, run.stderr);
     let run = nux("try-nu 'use nux/typescript;\"a.ts(1,2): error TS1: x\" | typescript from tsc | get code.0' | get value");
     assert_eq!((run.status, run.stdout.as_str()), (0, "TS1\n"), "{}{}", run.stdout, run.stderr);
@@ -275,6 +275,22 @@ fn nux_in(dir: &std::path::Path, code: &str) -> Run {
         stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
         stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
     }
+}
+
+/// `git status | git add` stages what is left, also when a deletion is already staged (git
+/// does not find that file any more).
+#[test]
+fn git_add_takes_git_status_with_staged_deletions() {
+    let repo = git_repo("git-add");
+    let run = nux_in(&repo, "^git rm -q old.txt\ngit status | git add | where unstaged != null | length");
+    assert_eq!((run.status, run.stdout.as_str()), (0, "0\n"), "{}{}", run.stdout, run.stderr);
+    let run = nux_in(&repo, "git status | select path staged | to nuon");
+    assert_eq!(
+        run.stdout,
+        "[[path, staged]; [\"README.md\", modified], [\"a..b.txt\", modified], [\"old.txt\", deleted]]\n",
+        "{}",
+        run.stderr
+    );
 }
 
 /// `git diff` tells revisions from paths, also for paths with `..` in them.
