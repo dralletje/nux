@@ -39,7 +39,8 @@ sys cpu | length                # a record has a length like anything else
 ```
 
 External commands give a `string`. Parse it with `from json`, `from yaml`, `from csv`,
-`lines`, `split column`, `detect columns` as needed.
+`from env` (a .env file, also `from dotenv`), `lines`, `split column`, `detect columns` as
+needed.
 
 ## String literals
 

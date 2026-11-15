@@ -13,6 +13,10 @@ export use usage.nu *
 
 const PRELUDE_DIR = (path self | path dirname)
 
+# Parse text as a .env file and create a record: another name for `from dotenv`
+# (`nux help from dotenv`). `open .env` already reads one this way.
+export alias "from env" = from dotenv
+
 # Run code in another language: the input goes to the runner as NUON, its output comes back
 # as a value. A failure becomes an error that points at the code.
 def run-code [
