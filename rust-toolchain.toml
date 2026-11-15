@@ -1,0 +1,5 @@
+# The Rust version, the same here and in CI. A new compiler means rebuilding every
+# dependency (all of Nushell): pinned, that only happens when this line changes.
+[toolchain]
+channel = "1.100.0"
+profile = "minimal"

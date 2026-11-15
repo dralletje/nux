@@ -15,6 +15,12 @@ cargo test --release
 target/release/nux <<< 'ls | length'
 ```
 
+The Rust version is pinned in `rust-toolchain.toml`: a new compiler rebuilds every
+dependency, all of Nushell. CI (`.github/workflows/build.yml`) builds and tests on Linux
+x86_64 and arm64, each natively, and keeps the binaries as artifacts; a tag `v*` makes a
+release with them. Its cache keeps the compiled dependencies, so only the first run (and
+one after a change to `Cargo.lock` or the Rust version) builds everything.
+
 ## How it works
 
 - `src/main.rs`: command line, signals, usage log, exit status.

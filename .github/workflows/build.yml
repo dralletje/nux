@@ -1,0 +1,86 @@
+# Build and test nux for Linux on x86_64 and arm64, each on a machine of that architecture
+# (no cross-compiling). The binaries are kept as artifacts of the run; a tag `v*` also makes
+# a release with them.
+#
+# Not from scratch every time: Swatinem/rust-cache keeps the compiled dependencies (all of
+# Nushell, most of the build) per architecture, so a run builds only nux itself. The cache
+# starts over when Cargo.lock or the Rust version (rust-toolchain.toml) changes.
+
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 22.04: its glibc (2.35) is old enough for the binary to run on most current
+          # distributions.
+          - runner: ubuntu-22.04
+            arch: x86_64
+          - runner: ubuntu-22.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    name: linux-${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # The version in rust-toolchain.toml (without arguments, `install` takes it from there).
+      - name: Rust
+        run: |
+          rustup toolchain install
+          rustc --version
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.arch }}
+
+      # `js` in the tests needs Node 26 (Temporal).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+
+      - name: Build
+        run: cargo build --release --locked
+
+      # Same profile as the build, so nothing is compiled again for the tests but the tests.
+      - name: Test
+        run: cargo test --release --locked
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          strip -o dist/nux target/release/nux
+          tar -czf dist/nux-linux-${{ matrix.arch }}.tar.gz -C dist nux
+          ls -l dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nux-linux-${{ matrix.arch }}
+          path: dist/nux-linux-${{ matrix.arch }}.tar.gz
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ github.ref_name }}" dist/*.tar.gz --repo "${{ github.repository }}" --generate-notes
