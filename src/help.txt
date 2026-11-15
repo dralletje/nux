@@ -4,13 +4,37 @@ RUN SOMETHING
   Code goes in on stdin, with a quoted heredoc: nothing in it needs escaping for the shell.
       nux <<'NU'
       let big = (ls **/* | where size > 1mb)
-      $big | sort-by size -r | select name size
+      $big
+      | sort-by size --reverse
+      | select name size
       NU
-  One command is the same thing with one line. When that line has no single quotes of its
-  own, a here-string is shorter:
+  One short command is the same thing with one line. When that line has no single quotes
+  of its own, a here-string is shorter:
       nux <<< 'git status'
   There is no other way to give code (no -c).
   It runs in the directory you call nux from.
+
+WRITE IT ON MANY LINES
+  Write nux code like a script, not like a shell one-liner.
+    - A pipeline with a closure, with more than 4 steps, or hard to read on one line in
+      any other way: every step on a line of its own, the line starting with `|`.
+    - `if`, `else`, `for`, `while` and `loop`: their blocks always over several lines,
+      also for one simple operation. The same for a closure that does more than one thing.
+    - Errors say on which line they are: with one step per line, that names the step.
+      ls **/*
+      | where type == file
+      | each {|file|
+          {name: $file.name, mb: ($file.size / 1mb)}
+        }
+      | sort-by mb --reverse
+      | first 10
+
+      if ($found | is-empty) {
+        print "nothing found"
+      } else {
+        $found | length
+      }
+  A short pipeline without a closure stays on one line: `git status | get path`.
 
   What you get back:
     - Data (the value of the last expression) as NUON, Nushell's notation: types are kept,
@@ -33,7 +57,11 @@ RUN SOMETHING
     - To see something on the way, put `show` in the pipeline: it prints the value and
       passes it on. With a closure it prints what the closure makes of the value, and still
       passes on all of it:
-          ls **/* | show { length } | where size > 1mb | show { select name size } | get name
+          ls **/*
+          | show { length }
+          | where size > 1mb
+          | show { select name size }
+          | get name
     - A result too large to print (over 10 KiB) is kept: you see its type, size and first
       rows, and get all of it in a next call with `kept result-<n>`.
     - JSON instead of NUON: end the code with `| to json --raw`.
@@ -67,13 +95,22 @@ A BROWSER
   `browser do { ... }` starts a real browser for the closure and closes it afterwards. Every
   `browser` operation inside gives data: a page as a record (url, status, title, headings,
   text, failed_requests, console, elements), network requests as a table.
-      browser do { browser navigate http://localhost:8888/ | select status title failed_requests console }
+      browser do {
+        browser navigate http://localhost:8888/
+        | select status title failed_requests console
+      }
       browser do {
         browser navigate http://localhost:8888/login | ignore
         browser type 'input[name=email]' me@example.com | ignore
         browser click 'button[type=submit]' | get url
       }
-      [/ /about /contact] | browser do { each {|path| browser navigate $"http://localhost:8888($path)" | select url status } }
+      [/ /about /contact]
+      | browser do {
+          each {|path|
+            browser navigate $"http://localhost:8888($path)"
+            | select url status
+          }
+        }
   Targets are refs from the page record's `elements` (e12) or CSS selectors.
   Starting a browser takes seconds: do everything for one page in one closure. A browser that
   stays open between calls (a login you come back to) is started from your shell instead:
@@ -104,7 +141,10 @@ COMMANDS THAT GIVE TABLES   (examples for each: nux help <command>)
       ^node --test --test-reporter=tap | complete | from tap
                                             test results: name, status, duration, file, line,
                                             error. For a package script:
-      with-env {NODE_OPTIONS: "--test-reporter=tap"} { ^pnpm test | complete } | from tap
+          with-env {NODE_OPTIONS: "--test-reporter=tap"} {
+            ^pnpm test | complete
+          }
+          | from tap
                                             (`from node-26-test` reads Node 20+'s default
                                             output instead, without the option.)
       ports                                 what listens where: port, pid, name, command, cwd
@@ -168,7 +208,11 @@ PYTHON AND JAVASCRIPT
 MORE YOU CAN DO WITH A TABLE
       $rows | to md --pretty                 a Markdown table, for a report to a person
       $rows | to csv | save out.csv          (also: to json, to yaml, to xlsx via save)
-      $rows | group-by status --to-table     then: | each {|g| {status: $g.status, n: ($g.items | length)} }
+      $rows                                  how many of each status
+      | group-by status --to-table
+      | each {|group|
+          {status: $group.status, n: ($group.items | length)}
+        }
   SQL, when a query is easier to write than a pipeline: put the table in an SQLite file.
       $rows | into sqlite /tmp/work.db --table-name rows
       open /tmp/work.db | query db "select status, count(*) as n from rows group by status"
