@@ -2,7 +2,7 @@
 //! in the binary by build.rs.
 //!
 //! The `.nu` files are loaded from the binary, the way Nushell loads its standard library:
-//! each is a virtual file under `nux/` (`nux/prelude.nu`, `nux/browser/mod.nu`), so a call can
+//! each is a virtual file under `nux/` (`nux/prelude.nu`, `nux/git/mod.nu`), so a call can
 //! also `use nux/<module>` itself. Nothing of them is written to disk.
 //!
 //! Python and Node read their runners from files, so those are written out on first use, to a

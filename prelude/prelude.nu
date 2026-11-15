@@ -3,10 +3,9 @@
 # This file has py, js and search; the files next to it the rest.
 
 # Modules by the name they are loaded with from the binary, `nux/<file name without .nu>`,
-# also from each other: a relative path (`git.nu`, `../util.nu`) is not found there.
+# also from each other: a relative path (`git.nu`, `../other.nu`) is not found there.
 export use nux/git
 export use nux/typescript *
-export use nux/browser
 export use nux/servers *
 export use nux/testing *
 export use nux/ast *

@@ -91,31 +91,6 @@ TRYING CODE
   `error` is null, or a record: msg, code, help, line, column, text. Use it to test
   modules, compare `use` with `source`, or try code that may fail.
 
-A BROWSER
-  `browser do { ... }` starts a real browser for the closure and closes it afterwards. Every
-  `browser` operation inside gives data: a page as a record (url, status, title, headings,
-  text, failed_requests, console, elements), network requests as a table.
-      browser do {
-        browser navigate http://localhost:8888/
-        | select status title failed_requests console
-      }
-      browser do {
-        browser navigate http://localhost:8888/login | ignore
-        browser type 'input[name=email]' me@example.com | ignore
-        browser click 'button[type=submit]' | get url
-      }
-      [/ /about /contact]
-      | browser do {
-          each {|path|
-            browser navigate $"http://localhost:8888($path)"
-            | select url status
-          }
-        }
-  Targets are refs from the page record's `elements` (e12) or CSS selectors.
-  Starting a browser takes seconds: do everything for one page in one closure. A browser that
-  stays open between calls (a login you come back to) is started from your shell instead:
-  nux help browser.
-
 COMMANDS THAT GIVE TABLES   (examples for each: nux help <command>)
       search 'pattern' src --glob '*.ts'    file contents (ripgrep): file, line, text
       ast-find --lang ts 'console.log($$$A)' src
@@ -149,8 +124,6 @@ COMMANDS THAT GIVE TABLES   (examples for each: nux help <command>)
                                             output instead, without the option.)
       ports                                 what listens where: port, pid, name, command, cwd
       wait-for http://localhost:8888/       wait until a server answers (or: wait-for 5432)
-      browser do { browser navigate <url> }
-                                            a page as a record (see A BROWSER above)
   `git` is nux's own: only the table commands above. `git` alone lists them, and which of
   them to use instead of reading `^git diff`, `^git rev-parse` and the like. Anything else,
   `git commit` or `git status --short`, is an error: git itself is `^git`, as in
