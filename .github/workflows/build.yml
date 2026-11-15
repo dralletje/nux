@@ -1,18 +1,18 @@
 # Build and test nux for Linux on x86_64 and arm64, each on a machine of that architecture
-# (no cross-compiling). The binaries are kept as artifacts of the run; a tag `v*` also makes
-# a release with them.
+# (no cross-compiling), on every push to main. When the version in Cargo.toml has no release
+# yet, the run then makes one (tag v<version>) with both binaries: raising the version is
+# how to release. Work happens on other branches, which start nothing.
 #
 # Not from scratch every time: Swatinem/rust-cache keeps the compiled dependencies (all of
 # Nushell, most of the build) per architecture, so a run builds only nux itself. The cache
-# starts over when Cargo.lock or the Rust version (rust-toolchain.toml) changes.
+# starts over when Cargo.lock or the Rust version (rust-toolchain.toml) changes, and after
+# 7 days without a run.
 
 name: build
 
 on:
   push:
     branches: [main]
-    tags: ["v*"]
-  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -69,18 +69,36 @@ jobs:
           name: nux-linux-${{ matrix.arch }}
           path: dist/nux-linux-${{ matrix.arch }}.tar.gz
 
+  # After both builds and their tests passed: a release for the version in Cargo.toml, unless
+  # there is one already (then this run was only a build).
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+      - name: Version
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(sed -n '/^\[package\]/,/^\[/s/^version *= *"\(.*\)"/\1/p' Cargo.toml)
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          if gh release view "v$version" > /dev/null 2>&1; then
+            echo "v$version is released already: raise the version in Cargo.toml for a new release."
+            echo "new=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "new=true" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/download-artifact@v4
+        if: steps.version.outputs.new == 'true'
         with:
           path: dist
           merge-multiple: true
       - name: Release
+        if: steps.version.outputs.new == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${{ github.ref_name }}" dist/*.tar.gz --repo "${{ github.repository }}" --generate-notes
+        run: gh release create "${{ steps.version.outputs.tag }}" dist/*.tar.gz --target "${{ github.sha }}" --generate-notes
