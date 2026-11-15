@@ -264,6 +264,36 @@ fn git_diff_paths_do_not_depend_on_git_config() {
     assert_eq!(run.stdout, "README.md\n", "{}{}", run.stdout, run.stderr);
 }
 
+/// `from tsc` on real tsc output (TypeScript 5, tests/fixtures): plain, as through
+/// `complete`; with --pretty (colors, code excerpts, related locations); and an error about
+/// no file. All give the same rows.
+#[test]
+fn from_tsc_reads_what_tsc_prints() {
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    let rows = |file: &str| {
+        let run = nux(&[], &format!("open --raw '{}' | from tsc | to json --raw", fixtures.join(file).display()));
+        assert_eq!(run.status, 0, "{file}: {}{}", run.stdout, run.stderr);
+        serde_json::from_str::<serde_json::Value>(&run.stdout).unwrap()
+    };
+    let plain = rows("tsc-plain.txt");
+    assert_eq!(plain.as_array().unwrap().len(), 3);
+    assert_eq!(
+        plain[0],
+        serde_json::json!({"file": "a.ts", "line": 1, "column": 7, "category": "error", "code": "TS2322",
+            "message": "Type 'string' is not assignable to type 'number'."})
+    );
+    // A message over three lines, kept whole.
+    assert_eq!(
+        plain[2]["message"],
+        "Argument of type '{ a: number; }' is not assignable to parameter of type '{ a: string; }'.\n\
+         Types of property 'a' are incompatible.\nType 'number' is not assignable to type 'string'."
+    );
+    assert_eq!(rows("tsc-pretty.txt"), plain, "--pretty gives the same rows");
+    let global = rows("tsc-global.txt");
+    assert_eq!(global[0]["file"], serde_json::Value::Null);
+    assert_eq!(global[0]["code"], "TS5058");
+}
+
 /// Ranges into `py` and `js`: counting down and in steps too (Nushell writes those as
 /// `start..next..end`), with or without the end itself.
 #[test]
