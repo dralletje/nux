@@ -50,6 +50,10 @@ jobs:
         with:
           node-version: 26
 
+      # `search` in the tests needs ripgrep, which the runner image does not have.
+      - name: ripgrep
+        run: sudo apt-get install -y --no-install-recommends ripgrep
+
       - name: Build
         run: cargo build --release --locked
 
