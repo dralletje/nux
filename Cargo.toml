@@ -1,6 +1,6 @@
 [package]
 name = "nux"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "Nushell for agents: one call, one fresh Nushell, results as data."
 publish = false
