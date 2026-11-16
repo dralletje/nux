@@ -4,7 +4,8 @@
 # The calls made to nux, oldest first: one row per call, by every agent on this machine.
 #
 # Columns: at, runner (which nux: "nux-rs <version>", or "nux-ts" for the TypeScript one),
-# kind (eval, try-nu, help, find, guide, invalid; the TypeScript nux also had stop and list),
+# kind (eval, try-nu, help, find, invalid; nux had guide until 0.2, the TypeScript nux also
+# had stop and list),
 # outcome (ok, error, external_failed, usage_error, start_failed, caller_killed, or
 # unfinished: still running, or killed outright; the TypeScript nux also had timeout and
 # session_failed), duration, reason, code, error_code, text (what the caller got to see),

@@ -202,11 +202,30 @@ MORE YOU CAN DO WITH A TABLE
       $rows | into sqlite /tmp/work.db --table-name rows
       open /tmp/work.db | query db "select status, count(*) as n from rows group by status"
 
+FROM BASH
+      mkdir -p a/b                  mkdir a/b
+      rm -rf dir                    rm -r dir
+      cat file                      open --raw file    (open file: json, yaml, toml, csv as data)
+      grep pat file                 search pat file    (a value: where $it =~ pat)
+      sed 's/a/b/'                  str replace a b    (-r for a regex, -a for every match)
+      for f in *.md; do ...         for f in (glob *.md) { ... }
+      $(cmd)                        (cmd)              (...(cmd) spreads a list as arguments)
+      echo $PATH                    $env.PATH
+      export FOO=bar                $env.FOO = "bar"
+      FOO=bar ./bin                 FOO=bar ./bin, or with-env {FOO: bar} { ./bin }
+      type foo                      which foo
+      cmd1 && cmd2                  cmd1; cmd2         (a failing command ends the call)
+      cmd1 || cmd2                  try { cmd1 } catch { cmd2 }
+      cmd > file                    cmd o> file        (a value: ... | save file)
+      cmd >> file                   cmd o>> file
+      cmd 2>&1 | next               cmd o+e>| next     (there is no 2>&1)
+      cmd > /dev/null 2>&1          cmd o+e>| ignore
+      cmd | tee log | other         cmd | tee { save log } | other
+      a long \ line                 wrap it in ( ... ), or one step per line starting with |
+
 LOOK THINGS UP   (Nushell changes between versions; check before guessing)
       nux find <word>         commands whose name or description mentions the word
       nux help <command>      usage, flags and examples, e.g.: nux help str replace
-      nux guide               how to write Nushell well: strings, redirection, bash to
-                              Nushell, http, parallelism, jobs (read it once)
 
 GOOD TO KNOW
   - A failed call prints the error with its place in the code and exits with status 1.
@@ -214,6 +233,12 @@ GOOD TO KNOW
     nothing interactive (`input`, pagers, editors, password prompts). A server or anything
     else that keeps running does not belong in a call: the call would not end. Start it as a
     background command of your shell, then `wait-for` it here.
+  - Strings: '...' and r#'...'# have no escapes; "..." has \n \t \" \\ and \u{1b} (not
+    \u001b). A value in text needs both the $ and the ( ):
+    $"hello ($name)". "hello $name" stays as written. Colors out of text: `ansi strip`.
+  - A flag with a value from a variable is one string: ^mysql $"--password=($pw)" db
+    (`-p $pw` would be two arguments). External commands see environment variables
+    ($env.X, with-env), not `let` variables.
   - In $"..." every ( ) is code that runs, also in what was meant as text: $"Fixed (see
     notes)" runs a command `see`. For ( ) as text write \( \), or use a raw string, in which
     nothing runs. Longer text, like a commit message, always as a raw string:
@@ -222,6 +247,16 @@ GOOD TO KNOW
         The cookie was not cleared (fixed). It's set in root.tsx.'#
         $message | ^git commit -F -
   - `where name =~ 'x'` fails on a row where name is null: `where name != null and name =~ 'x'`.
+  - `ls **/*` leaves out hidden files (`--all` for them); `glob **/*` has them, .git too:
+    glob **/*.rs --exclude [**/target/** **/.git/**]
+    Nushell's `find` filters a value; it does not look for files.
+  - Columns of text from a command, as a table: ^ps -o pid,comm | detect columns
+    (--guess when a header has spaces in it, as in ^df -h)
+  - `http post -t application/json <url> {key: value}`: the whole MIME type (`-t json` does
+    not work). `http get --raw` gives the text unparsed.
+  - `job spawn { ... }` runs in the background until the call ends, not longer. In it,
+    `job send 0` sends a value to the main thread; `job recv` (no id) reads it there.
+    `job list`, not `job ls`.
   - Plugins registered for `nu` (`plugin list`) work here too; `plugin add` registers one.
 
 MORE

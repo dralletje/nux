@@ -121,7 +121,7 @@ fn main() {
     let kind = match command {
         None if help || (code.trim().is_empty() && std::io::stdin().is_terminal()) => "help",
         None => "eval",
-        Some(c @ ("help" | "find" | "guide")) => c,
+        Some(c @ ("help" | "find")) => c,
         Some(_) => "invalid",
     };
     let kind = if kind == "eval" && try_nu_child.is_some() { "try-nu" } else { kind };
@@ -139,7 +139,6 @@ fn main() {
     match command {
         Some("help") if words.is_empty() => finish(Reply::ok(help_text())),
         None if help => finish(Reply::ok(help_text())),
-        Some("guide") => finish(Reply::ok(include_str!("guide.md").trim())),
         Some("stop" | "list") => fail(Outcome::UsageError, NO_SESSIONS),
         Some("help" | "find") => {}
         Some(other) => fail(Outcome::UsageError, format!("Unknown command \"{other}\". {CODE_ON_STDIN}\nHelp: nux help")),

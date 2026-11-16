@@ -48,7 +48,7 @@ impl Outcome {
 }
 
 pub struct Start<'a> {
-    /// eval, help, find, guide, invalid
+    /// eval, try-nu, help, find, invalid
     pub kind: &'a str,
     pub argv: &'a [String],
     pub cwd: &'a str,

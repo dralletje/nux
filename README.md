@@ -78,5 +78,6 @@ point): cargo's own choice took a pre-release of `notify` that does not compile.
   `NUX_PRELUDE_DIR` points nux at this folder instead, to work on it without building.
   Every call loads all of it (about 26 of a call's 41 ms); loading only what a call uses was
   tried and reverted for simplicity: `docs/lazy-prelude.md`.
-- `src/guide.md`: `nux guide`, how to write Nushell well. Adapted from the guide Nushell's
-  MCP server gives agents (`nu-mcp` crate, MIT), with what is about that server taken out.
+- `src/help.txt`: `nux help`, the manual agents read. Its FROM BASH table and several of
+  its GOOD TO KNOW notes are adapted from the guide Nushell's MCP server gives agents
+  (`nu-mcp` crate, MIT).

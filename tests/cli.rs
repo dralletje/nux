@@ -46,6 +46,20 @@ fn nux_with(args: &[&str], code: &str, env: &[(&str, &std::path::Path)]) -> Run 
 }
 
 #[test]
+fn help_is_the_one_manual() {
+    let help = nux(&["help"], "");
+    assert_eq!(help.status, 0);
+    for part in ["FROM BASH", "o+e>|", "-t application/json", "job recv"] {
+        assert!(help.stdout.contains(part), "nux help lacks {part}");
+    }
+    assert!(!help.stdout.contains("nux guide"), "nux help still points to nux guide");
+    // `nux guide` was folded into `nux help`.
+    let guide = nux(&["guide"], "");
+    assert_ne!(guide.status, 0);
+    assert!(format!("{}{}", guide.stdout, guide.stderr).contains("Unknown command"));
+}
+
+#[test]
 fn data_comes_back_as_nuon() {
     let run = nux(&[], "1 + 1");
     assert_eq!((run.status, run.stdout.as_str()), (0, "2\n"));
