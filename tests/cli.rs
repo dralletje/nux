@@ -107,9 +107,40 @@ fn an_earlier_failing_command_shows_its_output_and_ends_the_call() {
 }
 
 #[test]
-fn an_earlier_command_that_succeeds_shows_only_its_stderr() {
-    let run = nux(&[], "^sh -c 'echo hidden; echo seen >&2'\n42");
-    assert_eq!((run.status, run.stdout.as_str()), (0, "stderr (^sh -c 'echo hidden; echo seen >&2'): seen\n42\n"));
+fn an_earlier_command_that_succeeds_shows_its_output() {
+    let run = nux(&[], "^sh -c 'echo out; echo seen >&2'\n42");
+    assert_eq!(
+        (run.status, run.stdout.as_str()),
+        (
+            0,
+            "stderr (^sh -c 'echo out; echo seen >&2'): seen\n── line 1: ^sh -c 'echo out; echo seen >&2'\nout\n── line 2: 42\n42\n"
+        )
+    );
+    // Muted: no output, so no lines naming statements either.
+    let run = nux(&[], "^sh -c 'echo out' o> /dev/null\n42");
+    assert_eq!(run.stdout, "42\n");
+}
+
+/// Every statement's value is shown, each under a line naming it; one value alone as before.
+#[test]
+fn every_value_is_shown() {
+    let run = nux(&[], "1 + 1\nlet x = 5\n[a b]\n$x");
+    assert_eq!(run.stdout, "── line 1: 1 + 1\n2\n── line 3: [a b]\n[a,b]\n── line 4: $x\n5\n");
+    // Declarations, assignments, loops, print, cd and ignore give nothing to show.
+    let run = nux(
+        &[],
+        "def f [] { 1 }\nmut y = 1\n$y = 2\nfor i in [1] { $i }\nprint 'p'\ncd /\nls | ignore\nuse std/assert\n$y",
+    );
+    assert_eq!(run.stdout, "p\n2\n");
+    // if, match and try give values.
+    let run = nux(&[], "if true { 'yes' }\ntry { 'tried' }\n3");
+    assert_eq!(run.stdout, "── line 1: if true { 'yes' }\nyes\n── line 2: try { 'tried' }\ntried\n── line 3: 3\n3\n");
+    // A def --env still changes the environment, and `let` still gets its own value.
+    let run = nux(&[], "def --env go [] { $env.Z = 'z' }\ngo\nlet v = 7\n$\"($env.Z)($v)\"");
+    assert_eq!(run.stdout, "z7\n");
+    // Several statements on one line.
+    let run = nux(&[], "1; 2");
+    assert_eq!(run.stdout, "── line 1: 1\n1\n── line 1: 2\n2\n");
 }
 
 /// An external that fails inside a def, its output going on into the pipeline: the call fails
@@ -681,11 +712,16 @@ fn large_text_shows_its_first_and_last_lines() {
 
 #[test]
 fn an_unknown_flag_lists_the_flags_there_are() {
-    let run = nux(&[], "search x -A 2");
+    let run = nux(&[], "search x -q");
     assert!(run.stdout.contains("Hint: The flags of `search`:"), "{}", run.stdout);
     assert!(run.stdout.contains("--context (-C) <int>"), "{}", run.stdout);
     // A single letter of another tool gets no guess.
     assert!(!run.stdout.contains("Did you mean"), "{}", run.stdout);
+    // grep's flags that have a way here already: that way, then the flags.
+    let run = nux(&[], "search x -n");
+    assert!(run.stdout.contains("Hint: `-n`: not needed, `line` is always there.\n    The flags of `search`:"), "{}", run.stdout);
+    let run = nux(&[], "search x -c");
+    assert!(run.stdout.contains("--files gives one row per file"), "{}", run.stdout);
     let run = nux(&[], "ls --al");
     assert!(run.stdout.contains("Hint: Did you mean --all?"), "{}", run.stdout);
     // A subcommand: Nushell names it `status`; the hint finds `git status`.
@@ -723,6 +759,32 @@ fn edit_file_says_where_the_text_differs() {
     let run = nux(&[], &format!("edit-file '{f}' 'greet' 'greet'"));
     assert_eq!(run.status, 0);
     assert!(run.stderr.contains("edit 1 changes nothing"), "{}", run.stderr);
+}
+
+/// search: lines before or after, only what matched, grep's text, and globs as paths.
+#[test]
+fn search_has_grep_s_ways_too() {
+    let dir = scratch().join(format!("search-grep-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("src")).unwrap();
+    std::fs::write(dir.join("src/a.ts"), "one\nfind me 12\ntwo\nthree\nfour\nfind me 34\nfive\n").unwrap();
+    std::fs::write(dir.join("src/b.md"), "find me 56\n").unwrap();
+    let run = |code: &str| {
+        let run = nux_in(&dir, code);
+        assert_eq!(run.status, 0, "{code}: {}{}", run.stdout, run.stderr);
+        run.stdout
+    };
+    assert_eq!(run("search 'find me' src/a.ts --after-context 1 | get line"), "[2,3,6,7]\n");
+    assert_eq!(run("search 'find me' src/a.ts --before-context 1 | where not hit | get line"), "[1,5]\n");
+    assert_eq!(run("search '\\d+' src/a.ts --only-matching | get text"), "[\"12\",\"34\"]\n");
+    assert_eq!(
+        run("search 'find me' src/a.ts --after-context 1 --text"),
+        "src/a.ts:2:find me 12\nsrc/a.ts-3-two\n--\nsrc/a.ts:6:find me 34\nsrc/a.ts-7-five\n"
+    );
+    assert_eq!(run("search 'find me' src/a.ts --text"), "src/a.ts:2:find me 12\nsrc/a.ts:6:find me 34\n");
+    // A glob as a path: the files it matches.
+    assert_eq!(run("search 'find me' src/*.md | get file"), "[\"src/b.md\"]\n");
+    let missing = nux_in(&dir, "search x src/*.rs");
+    assert!(missing.stdout.contains("search: nothing matches src/*.rs"), "{}", missing.stdout);
 }
 
 /// `nux help` finds the commands of modules that are loaded only with `use`.

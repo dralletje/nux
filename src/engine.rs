@@ -21,7 +21,7 @@ use crate::{
     commands::{self, kept},
     format::{self, CODE_FILE, Sources, format_completed, without_final_newline},
     prelude,
-    rewrite::{nu_raw_string, statements, with_exit_checks},
+    rewrite::{line_of, nu_raw_string, shorten, statements, with_exit_checks},
     usage_log::Outcome,
 };
 
@@ -53,6 +53,9 @@ pub struct Nu {
     stack: Stack,
     /// Set when the prelude did not load: nux's own commands are missing then.
     pub prelude_problem: Option<String>,
+    /// The code's last top-level statement: its line and how it is shown. Its value gets a
+    /// line saying so when earlier values were shown (`statement_value`).
+    last_statement: Option<(usize, String)>,
 }
 
 /// An error, already put into words (a parse error refers to code that is not in the engine
@@ -124,7 +127,7 @@ impl Nu {
 
         // External commands at the end of a pipeline hand their output to nux, instead of
         // writing to the terminal.
-        let mut nu = Nu { engine, stack: stack.capture_all(), prelude_problem: None };
+        let mut nu = Nu { engine, stack: stack.capture_all(), prelude_problem: None, last_statement: None };
         match prelude::install(&mut nu.engine) {
             Ok(source) => {
                 if let Err(failure) = nu.run_source("nux-prelude", &source) {
@@ -185,16 +188,32 @@ impl Nu {
     /// level are completed, so that their output and exit code are seen.
     fn evaluate(&mut self, code: &str, input: PipelineData) -> Result<Evaluated, Stopped> {
         let (block, delta, base) = self.parse(CODE_FILE, code).map_err(Stopped::Failed)?;
-        let checked = with_exit_checks(code, &statements(&block, base), self.prelude_problem.is_none());
-        let (block, delta, last_command, insertions) = if checked.changed {
-            match self.parse(CODE_FILE, &checked.code) {
-                Ok((block, delta, _)) => (block, delta, checked.last_command, checked.insertions),
-                // Should the additions ever break the code: run it as it was given.
-                Err(_) => (block, delta, None, Vec::new()),
-            }
-        } else {
-            (block, delta, None, Vec::new())
+        // Keywords are Nushell's own, so in the engine already; a command the code defines
+        // itself is not (its id is past the engine's), and is no keyword.
+        let engine = &self.engine;
+        let keyword = |id: nu_protocol::DeclId| {
+            (id.get() < engine.num_decls())
+                .then(|| engine.get_decl(id))
+                .filter(|decl| decl.is_keyword())
+                .map(|decl| decl.name().to_string())
         };
+        let found = statements(&block, base, keyword);
+        self.last_statement = found.last().map(|s| (line_of(code, s.start), shorten(&code[s.start..s.end])));
+        let checks = self.prelude_problem.is_none();
+        // With the values of earlier statements shown; should that ever break the code, with
+        // the exit checks only; should those break it too, the code as it was given.
+        let mut rewritten = None;
+        for show_values in [true, false] {
+            let checked = with_exit_checks(code, &found, checks, show_values);
+            if !checked.changed {
+                break;
+            }
+            if let Ok((block, delta, _)) = self.parse(CODE_FILE, &checked.code) {
+                rewritten = Some((block, delta, checked.last_command, checked.insertions));
+                break;
+            }
+        }
+        let (block, delta, last_command, insertions) = rewritten.unwrap_or((block, delta, None, Vec::new()));
         // Errors point at the code as the agent wrote it, not as nux ran it.
         let failed = |nu: &Self, error: &ShellError| {
             Stopped::Failed(nu.failure(Raw::Shell(error), &format::AsGiven { engine: &nu.engine, code, insertions: &insertions }))
@@ -281,6 +300,14 @@ impl Nu {
             }
             Err(Stopped::Failed(failure)) => Reply::failed(Outcome::Error, failure.text, failure.code),
         };
+        // Earlier values were shown, each under a line naming its statement: the last value too.
+        if reply.ok
+            && !reply.text.is_empty()
+            && commands::statement_value::shown() > 0
+            && let Some((line, statement)) = &self.last_statement
+        {
+            reply.text = format!("{}\n{}", commands::statement_value::header(*line, statement), reply.text);
+        }
         // A call that failed loses its variables with it: keep them for a next call.
         if !reply.ok {
             let variables = self.new_variables(&before);
@@ -354,30 +381,7 @@ impl Nu {
     }
 
     fn value_reply(&self, value: Value) -> Reply {
-        let text = match &value {
-            // "No value" (a `let`, a `cd`, a `print`) prints nothing.
-            Value::Nothing { .. } => return Reply::ok(""),
-            // Text (also what an external command printed, or `to json` made) is shown as it is.
-            Value::String { val, .. } => without_final_newline(val).to_string(),
-            _ => {
-                let config = nuon::ToNuonConfig::default().style(nuon::ToStyle::Raw).raw_strings(true);
-                match nuon::to_nuon(&self.engine, &value, config) {
-                    Ok(text) => text,
-                    // A closure, a polars frame: what Nushell would print for it.
-                    Err(_) => value.to_expanded_string(", ", &self.engine.get_config()),
-                }
-            }
-        };
-        if text.len() <= OUTPUT_LIMIT {
-            return Reply::ok(text);
-        }
-        match kept::keep_result(&self.engine, &value) {
-            Some(name) => Reply::ok(match &value {
-                Value::String { .. } => assist::large_text(&text, &name),
-                _ => assist::large_value(&self.engine, &value, &name, text.len()),
-            }),
-            None => Reply::ok(text),
-        }
+        Reply::ok(value_text(&self.engine, &value))
     }
 
     fn completed_reply(&self, stdout: &str, stderr: &str, exit_code: i64, command: Option<&str>) -> Reply {
@@ -437,6 +441,35 @@ help commands
             Ok(other) => Reply::ok(other.to_expanded_string("\n", &self.engine.get_config())),
             Err(failure) => Reply::failed(Outcome::Error, failure.text, failure.code),
         }
+    }
+}
+
+/// A value as nux prints it: nothing for no value, text as it is, anything else as NUON. One
+/// too large to print is kept (`kept result-<n>`), and what it looks like is shown instead.
+pub fn value_text(engine: &EngineState, value: &Value) -> String {
+    let text = match value {
+        // "No value" (a `let`, a `cd`, a `print`) prints nothing.
+        Value::Nothing { .. } => return String::new(),
+        // Text (also what an external command printed, or `to json` made) is shown as it is.
+        Value::String { val, .. } => without_final_newline(val).to_string(),
+        _ => {
+            let config = nuon::ToNuonConfig::default().style(nuon::ToStyle::Raw).raw_strings(true);
+            match nuon::to_nuon(engine, value, config) {
+                Ok(text) => text,
+                // A closure, a polars frame: what Nushell would print for it.
+                Err(_) => value.to_expanded_string(", ", &engine.get_config()),
+            }
+        }
+    };
+    if text.len() <= OUTPUT_LIMIT {
+        return text;
+    }
+    match kept::keep_result(engine, value) {
+        Some(name) => match value {
+            Value::String { .. } => assist::large_text(&text, &name),
+            _ => assist::large_value(engine, value, &name, text.len()),
+        },
+        None => text,
     }
 }
 

@@ -47,8 +47,94 @@ def pattern-problem [pattern: string, lang: string, found_nothing: bool]: nothin
   null
 }
 
+# The holes of a pattern (`$A`, `$$$ARGS`, `$_`, `$$$`), in order, with the text before each:
+# {before, hole, name}. Names as ast-grep reads them: `$` then capitals, digits and `_`.
+def holes-of [pattern: string]: nothing -> table {
+  $pattern | parse --regex '(?s)(?<before>.*?)(?<hole>\$\$\$[A-Z0-9_]*|\$\$?[A-Z_][A-Z0-9_]*)'
+  | insert name {|piece| $piece.hole | str trim --left --char '$' }
+}
+
+# Prefix of the names nux gives anonymous holes (`$_`, `$_X`, `$$$`), so that ast-grep reports
+# where they matched too. Left out of `vars`.
+const ANONYMOUS = "NUXANON"
+
+# The pattern with every anonymous hole named: `$_` -> `$NUXANON1`. Each gets a name of its
+# own, so they still match independently, as anonymous holes do.
+def name-anonymous-holes [pattern: string]: nothing -> string {
+  let pieces = (holes-of $pattern)
+  if ($pieces | is-empty) { return $pattern }
+  let named = ($pieces | enumerate | each {|piece|
+    let p = $piece.item
+    let anonymous = ($p.name == "" or ($p.name | str starts-with "_"))
+    let hole = if $anonymous {
+      let dollars = ($p.hole | str replace --regex '[^$].*$' '')
+      $"($dollars)($ANONYMOUS)($piece.index)"
+    } else { $p.hole }
+    $"($p.before)($hole)"
+  } | str join)
+  let used = ($pieces | each {|p| $p.before + $p.hole } | str join | str length)
+  $named + ($pattern | str substring $used..)
+}
+
+# Where, in a match, the code the pattern itself names ends: {end, trailing}, `end` a byte
+# offset in the file, `trailing` the rest of the match after it ("" when there is none).
+# Null when that cannot be told (the pattern's text after its last hole is not found there).
+#
+# Why: a pattern that is a statement, such as `import { $$$A } from "./x"` or `return $X`,
+# matches the whole statement, `;` included, although the pattern has no `;`; ast-grep's
+# replacement then takes the place of all of it, and the `;` is gone. See
+# tests/ast-rewrite/README.md.
+def pattern-end [pattern: string, match: record]: nothing -> any {
+  let start = $match.range.byteOffset.start
+  let text = ($match.text | into binary)
+  let found = ($match.metaVariables? | default {})
+  # The hole the pattern ends with, and where it ended in the match. A hole for many that
+  # matched nothing adds nothing: then the one before it, and so on.
+  mut rest_of_pattern = $pattern
+  mut pieces = (holes-of $pattern)
+  mut anchor = $start
+  mut tail = $pattern
+  while ($pieces | is-not-empty) {
+    let last = ($pieces | last)
+    let single = ($found.single? | default {} | get --optional $last.name)
+    let multi = ($found.multi? | default {} | get --optional $last.name | default [])
+    # Bytes of the pattern up to the end of this hole.
+    let used = ($pieces | each {|p| $p.before + $p.hole } | str join | str length)
+    if $single != null {
+      $anchor = $single.range.byteOffset.end
+      $tail = ($rest_of_pattern | str substring $used..)
+      break
+    }
+    if ($multi | is-not-empty) {
+      $anchor = ($multi | last | get range.byteOffset.end)
+      $tail = ($rest_of_pattern | str substring $used..)
+      break
+    }
+    if ($last.hole | str starts-with '$$$') {
+      # Matched nothing: as if the pattern did not have it.
+      $rest_of_pattern = ($rest_of_pattern | str substring 0..<($used - ($last.hole | str length))) + ($rest_of_pattern | str substring $used..)
+      $pieces = ($pieces | drop 1)
+      continue
+    }
+    return null
+  }
+  # Without holes left, the tail is the whole pattern, from the start of the match.
+  if ($pieces | is-empty) {
+    $anchor = $start
+    $tail = $rest_of_pattern
+  }
+  # Walk the tail's characters through the match, whitespace aside.
+  mut rest = ($text | bytes at ($anchor - $start).. | decode utf-8)
+  for char in ($tail | split chars --grapheme-clusters | where $it !~ '^\s$') {
+    $rest = ($rest | str trim --left)
+    if not ($rest | str starts-with $char) { return null }
+    $rest = ($rest | str substring --grapheme-clusters 1..)
+  }
+  {end: ($match.range.byteOffset.end - ($rest | into binary | bytes length)), trailing: $rest}
+}
+
 # Find code that has a certain shape, as a table: file, line, column, text, vars, language,
-# start, end (and replacement, with --rewrite).
+# start, end (and replacement and trailing, with --rewrite).
 #
 # The pattern is code in the language you search, with holes: `$NAME` stands for any one
 # expression, statement or name; `$$$NAME` for any number of them (arguments, statements);
@@ -62,6 +148,13 @@ def pattern-problem [pattern: string, lang: string, found_nothing: bool]: nothin
 # With --rewrite, each row also gets `replacement`: what the match would become. Nothing is
 # changed yet. Look, filter (`where`), adjust (`update replacement {...}`), and then pipe the
 # rows you want into `ast-apply`.
+#
+# Only what the pattern names is replaced. A pattern that is a statement without its `;`
+# (`return $X`, `import { $$$A } from "./x"`, `let $X = $Y` in Rust) matches the statement
+# with its `;`; that `;` (and a comment before it) is then not part of `text`, stays in the
+# file, and is in the column `trailing` (null when there is nothing after the pattern). It
+# is replaced after all when the rewrite ends in it itself (`--rewrite 'return $X;'`), and a
+# rewrite to '' deletes the whole statement, `;` included.
 #
 # --lang is required: a pattern is code in one language, and only files of that language
 # are searched (`ts` does not cover .tsx files: search those with `--lang tsx`). Files in
@@ -90,7 +183,9 @@ export def ast-find [
       label: {text: "which language is this?", span: (metadata $pattern).span}
     }
   }
-  mut arguments = [--pattern $pattern --lang $lang]
+  # With --rewrite, anonymous holes get names, so that where the pattern ends can be told.
+  let searched = if $rewrite != null { name-anonymous-holes $pattern } else { $pattern }
+  mut arguments = [--pattern $searched --lang $lang]
   if $rewrite != null { $arguments ++= [--rewrite $rewrite] }
   if $glob != null { $arguments ++= [--globs $glob] }
   let places = if ($paths | is-empty) { ["."] } else { $paths }
@@ -114,16 +209,37 @@ export def ast-find [
     let holes = ($match.metaVariables? | default {})
     let single = ($holes.single? | default {} | transpose name node | each {|var| {name: $var.name, value: $var.node.text} })
     let multi = ($holes.multi? | default {} | transpose name nodes | each {|var| {name: $var.name, value: ($var.nodes | get text | where $it !~ '^[,;]$')} })
-    let vars = ($single | append $multi | reduce --fold {} {|var, all| $all | insert $var.name $var.value })
+    let vars = (
+      $single | append $multi
+      | where name !~ $'^($ANONYMOUS)'
+      | reduce --fold {} {|var, all| $all | insert $var.name $var.value }
+    )
+    let start = $match.range.byteOffset.start
+    # Only what the pattern names is replaced: what the match has after that (the `;` of a
+    # statement the pattern wrote without one) stays, as `trailing`. Not when the replacement
+    # deletes the match (a deleted statement goes with its `;`), nor when it ends in that
+    # text itself (the rewrite wrote the `;`: it is replaced along).
+    let cut = if $with_rewrite { pattern-end $searched $match }
+    let keep = (
+      $cut != null
+      and ($cut.trailing | str trim) != ""
+      and ($match.replacement | str trim) != ""
+      and not ($match.replacement | str trim --right | str ends-with ($cut.trailing | str trim))
+    )
+    let text = if $keep {
+      $match.text | into binary | bytes at 0..<($cut.end - $start) | decode utf-8
+    } else { $match.text }
     let row = {
       file: ($match.file | str replace --regex '^\./' '')
       line: ($match.range.start.line + 1)
       column: ($match.range.start.column + 1)
-      text: $match.text
+      text: $text
       vars: $vars
     }
-    let row = if $with_rewrite { $row | insert replacement $match.replacement } else { $row }
-    $row | merge {language: $match.language, start: $match.range.byteOffset.start, end: $match.range.byteOffset.end}
+    let row = if $with_rewrite {
+      $row | insert replacement $match.replacement | insert trailing (if $keep { $cut.trailing })
+    } else { $row }
+    $row | merge {language: $match.language, start: $start, end: (if $keep { $cut.end } else { $match.range.byteOffset.end })}
   }
 }
 
@@ -170,7 +286,7 @@ export def ast-apply []: table -> table {
         }
         let current = ($original | bytes at $edit.start..<$edit.end | decode utf-8)
         if $current != $edit.text {
-          error make {msg: $"($group.file) changed since the search, at line ($edit.line)", help: $"Expected:\n($edit.text)\nFound:\n($current)\nSearch again. Nothing was written."}
+          error make {msg: $"($group.file) changed since the search, at line ($edit.line)", help: $"Expected:\n($edit.text)\nFound:\n($current)\nSearch again. Nothing was written.\nAfter an earlier ast-apply on the same files: apply the rows of both searches at once \(`$a | append $b | ast-apply`\), or run the second search after the first apply."}
         }
         $pieces = ($pieces | append [($original | bytes at $position..<$edit.start) ($edit.replacement | into binary)])
         $position = $edit.end

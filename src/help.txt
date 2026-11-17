@@ -16,6 +16,8 @@ RUN SOMETHING
 
 WRITE IT ON MANY LINES
   Write nux code like a script, not like a shell one-liner.
+    - Flags in their long form: `search x --context 2 --ignore-case`, not `-C 2 -i`. A call
+      is read again later, by you and by people, and the long name says what it does.
     - A pipeline with a closure, with more than 4 steps, or hard to read on one line in
       any other way: every step on a line of its own, the line starting with `|`.
     - `if`, `else`, `for`, `while` and `loop`: their blocks always over several lines,
@@ -37,16 +39,19 @@ WRITE IT ON MANY LINES
   A short pipeline without a closure stays on one line: `git status | get path`.
 
   What you get back:
-    - Data (the value of the last expression) as NUON, Nushell's notation: types are kept,
-      a table's column names are written once. Text as it is. Nothing for no value (a `let`,
-      a `cd`, a `print`).
-    - For a call that ends in an external command (`^git push`, `pnpm build`): what it
-      printed, and a failure (exit status 1, "exited with code N") when it failed.
-    - Only the LAST command of a call shows its output. Of an external command earlier in
-      the call that succeeds you see what it wrote to stderr (warnings; `^git push` reports
-      there) but not its normal output; when it fails, all its output is printed and the
-      call ends there (nothing after it runs). To see the normal output of an earlier
-      command that succeeded, keep it: `let log = (^git log --oneline)`.
+    - The value of every statement, in order. One value alone comes as it is; with more,
+      each comes under a line that names its statement:
+          ── line 1: open package.json | get version
+          0.2.0
+          ── line 2: ^git log --oneline -1
+          9caf6b7 Fixes from a day of agent use
+      A `let`, `def`, `use`, `for`, an assignment, a `print` or a `cd` gives no value. To
+      leave a statement's value out: `... | ignore` (an external command: `o> /dev/null`).
+    - Data as NUON, Nushell's notation: types are kept, a table's column names are written
+      once. Text as it is.
+    - An external command (`^git push`, `pnpm build`): what it printed. When it fails, all
+      its output is printed, with "exited with code N", and the call ends there (exit status
+      1, nothing after it runs).
     - What a command wrote to stderr is marked, with the command: `stderr (git push): ...`.
       To silence a chatty command: `^npm ls e> /dev/null` (it still fails the call if it
       fails). To use stderr yourself: `let run = (^cmd | complete)` gives `$run.stderr`,
@@ -92,11 +97,17 @@ TRYING CODE
   modules, compare `use` with `source`, or try code that may fail.
 
 COMMANDS THAT GIVE TABLES   (examples for each: nux help <command>)
-      search 'pattern' src --glob '*.ts'    file contents (ripgrep): file, line, text
+      search 'pattern' src --glob '*.ts'    file contents (ripgrep): file, line, text. Line
+                                            numbers always, folders always searched through.
+                                            --context 3 (--before-context, --after-context),
+                                            --only-matching, --files (counts per file);
+                                            --text to read it as grep prints it
       ast-find --lang ts 'console.log($$$A)' src
                                             code by its structure (ast-grep): file, line, text,
                                             vars. With --rewrite '...' each row also gets its
-                                            replacement; look, filter, then: | ast-apply
+                                            replacement; look, filter, then: | ast-apply.
+                                            Only what the pattern names is replaced: the `;`
+                                            after `return $X` stays (column `trailing`)
       git log --since "1 week ago"          commits: hash, date, author, subject, ... (--files)
       git status                            changed files: path, staged, unstaged
       git diff                              what changed per file: path, added, deleted, versions

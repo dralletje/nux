@@ -23,35 +23,33 @@ sections. This file keeps what became of each item, so that it can be picked up 
 - **edit-file 4.5 #6, #7.** Not found: where the file stops matching (the longest start of
   `old` that is there, its line, what follows in the file and in `old`), "only whitespace
   differs", and bash's `'"'"'` named. old == new is a warning.
+- **1.2 ast-grep drops the `;`.** ast-grep's own behaviour (a statement pattern matches the
+  statement with its `;`). Fixed in nux with a rule that knows no language: only what the
+  pattern names is replaced; the rest of the match stays, in the column `trailing`. Why,
+  how, 30 cases and their history: `tests/ast-rewrite/README.md`. CI installs ast-grep
+  0.51.3 so they run there.
+- **1.3 ast-apply after ast-apply.** The "changed since the search" error says to apply both
+  searches' rows at once, or search again after the first apply.
+- **2.1, 2.7, 3.4 `search`.** New flags where nux had no way: --before-context (-B),
+  --after-context (-A), --only-matching (-o), --text (grep's form, `--` between places).
+  For grep flags that do have a way here (-n, -r, -c, -e, -w, -E, -v, -h), the unknown-flag
+  hint says what it is. A path with `*` is a glob. The manual asks for long flag names.
+- **3.2 Every value is shown.** Each top-level statement's value, under `── line N:
+  <statement>` when there is more than one; declarations, assignments, loops, `print`,
+  `| ignore` and output sent to a file give none. Earlier external commands' output too
+  (check-exit passes it on). The usage log has all of it in `stdout`.
 
 ## Open: a decision first
 
-- **1.2 ast-grep drops the `;`.** It is ast-grep's behaviour, not nux's: a pattern that is a
-  statement matches the statement with its `;`, and the replacement takes the place of all
-  of it (`ast-grep run -p 'import { $$$A } from "./x"' -r '...'` does the same). A pattern
-  that ends in `;` works. Other tools: comby (text templates, no syntax tree), GritQL,
-  semgrep (heavy), jscodeshift/ts-morph (JavaScript only); none is clearly better at this.
-  A fix that knows no language: when the match goes on past the end of the pattern's last
-  literal text (`"./x"` then `;`), and the replacement does not end in that, keep it. That
-  is the rule "only what the pattern names is replaced". Undecided.
-- **1.3 ast-apply after ast-apply.** The hint ("apply all rows together: `$a | append $b |
-  ast-apply`") is cheap. Together with 1.2.
 - **1.4, 3.1 Kept results.** Not re-keeping a value that came from `kept` is a clear fix.
   The file path is for the harness's Read tool (paging with line numbers, without another
   call); that only helps when a string is written as plain text, not NUON. Undecided whether
   the path is worth it.
-- **2.1, 2.7, 3.4, 3.5 `search`.** It is nux's own (prelude.nu, around ripgrep), so its flags
-  are ours. Options: real flags where they add something (`-A`/`-B`, `-o` as a `match`
-  column, `-c` as `--files`); `-n` and `-r` taken and ignored (what search does anyway);
-  several `-e` patterns; a hint for `*.ts` as a path; a `--text` output in grep's form (~200
-  calls format rows into that by hand); text on stdin.
+- **3.5 `search` on text from stdin** (a variable, `^git show` output). Not done yet.
 - **2.2 Markdown.** `open x.md` gives a table of the file's elements (heading, paragraph,
   ...: `element`, `content`, `content_span`), from Nushell's `from md`. Done: the hint and the
   manual. Not done: making `open` give text (hiding `from md`), which goes against Nushell.
-- **3.2 Values that are not shown.** Options: a footer naming the lines whose values were
-  dropped; showing every top-level value, each under its line, unless muted (`| ignore`);
-  pointing to `show` more. To decide.
-- **3.3 A format for agents instead of NUON.** See the last section.
+- **3.3 A format for agents instead of NUON.** The plan to test it: `docs/output-format-eval.md`.
 
 ## Would do, later
 

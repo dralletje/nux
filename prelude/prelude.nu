@@ -123,35 +123,74 @@ export def js [
 
 # Search file contents with ripgrep and get the matches as a table.
 #
-# One row per matching line: file, line, text. Files listed in .gitignore, hidden files and
-# binary files are skipped (--all includes the first two). Lines longer than 300 characters
-# are cut. No matches is an empty list, not an error.
+# One row per matching line: file, line, text. Line numbers are always there, and folders
+# are always searched through. Files listed in .gitignore, hidden files and binary files are
+# skipped (--all includes the first two). Lines longer than 300 characters are cut. No
+# matches is an empty list, not an error.
+#
+# With lines around the matches (--context, --before-context, --after-context), the rows
+# also have `hit`: true for a matching line, false for one around it. --text gives it all as
+# grep would print it, `file:line:text` for a match, `file-line-text` around one, `--`
+# between places. A path with `*` in it is a glob (`search foo src/*.ts`).
+#
+# For grep's other flags there is a way here already: -c is --files; -e a b is one pattern
+# 'a|b'; -w is '\bword\b'; -v is `where` on the lines (open --raw f | lines | where $it !~ x).
 @search-terms grep rg ripgrep "find in files"
 @example "A regular expression, everywhere below the current directory" { search 'export const \w+' }
 @example "Plain text in some files only" { search --literal 'foo(' src --glob '*.ts' }
 @example "Which files mention it, and how often" { search TODO --files | sort-by matches --reverse }
 @example "With two lines around each match (the column `hit` is true for the matching lines)" { search panic --context 2 }
+@example "To read, as grep prints it" { search 'fn main' src --after-context 3 --text }
+@example "Only what matched, not the whole line" { search 'TS\d{4}' build.log --only-matching | get text | uniq --count }
 export def search [
-  pattern: string     # Regular expression (Rust syntax); plain text with --literal
-  ...paths: path      # Files or directories to search (default: the current directory)
-  --literal (-F)      # Take the pattern as plain text
-  --ignore-case (-i)  # Do not tell upper and lower case apart
-  --glob (-g): string # Only files matching this glob, e.g. '*.ts' or '!*.test.ts'
-  --context (-C): int # Also give this many lines before and after each match
-  --files (-l)        # One row per file instead: file, matches
-  --all (-a)          # Also search hidden files and files that .gitignore excludes
-]: nothing -> table {
+  pattern: string              # Regular expression (Rust syntax); plain text with --literal
+  ...paths: path               # Files or directories to search (default: the current directory); `*` globs
+  --literal (-F)               # Take the pattern as plain text
+  --ignore-case (-i)           # Do not tell upper and lower case apart
+  --glob (-g): string          # Only files matching this glob, e.g. '*.ts' or '!*.test.ts'
+  --context (-C): int          # Also give this many lines before and after each match
+  --before-context (-B): int   # Also give this many lines before each match
+  --after-context (-A): int    # Also give this many lines after each match
+  --only-matching (-o)         # One row per match, `text` only what matched (not with lines around)
+  --files (-l)                 # One row per file instead: file, matches (grep's -c and -l)
+  --text                       # One text, as grep prints it, instead of a table
+  --all (-a)                   # Also search hidden files and files that .gitignore excludes
+]: nothing -> any {
   if (which rg | is-empty) {
     error make {msg: "search needs ripgrep (`rg`), which is not installed"}
+  }
+  let around = ($context != null or $before_context != null or $after_context != null)
+  if $only_matching and $around {
+    error make {msg: "search: --only-matching gives what matched, without lines around it", help: "Leave out --context, --before-context and --after-context, or --only-matching."}
   }
   mut options = [--json]
   if $literal { $options ++= [--fixed-strings] }
   if $ignore_case { $options ++= [--ignore-case] }
   if $glob != null { $options ++= [--glob $glob] }
   if $context != null { $options ++= [--context ($context | into string)] }
+  if $before_context != null { $options ++= [--before-context ($before_context | into string)] }
+  if $after_context != null { $options ++= [--after-context ($after_context | into string)] }
   if $all { $options ++= [--hidden --no-ignore] }
-  # Without a path ripgrep would read stdin here, so name the directory.
-  let places = if ($paths | is-empty) { ["."] } else { $paths }
+  # Without a path ripgrep would read stdin here, so name the directory. A path that does
+  # not exist but has glob characters is a glob (`src/*.ts`): ripgrep takes no globs there.
+  let places = if ($paths | is-empty) { ["."] } else {
+    $paths | each {|place|
+      if ($place | path exists) or ($place !~ '[*?\[{]') {
+        [$place]
+      } else {
+        let found = (glob $place)
+        if ($found | is-empty) {
+          error make {msg: $"search: nothing matches ($place)", help: $"Looked from (pwd). For a kind of file everywhere below a folder: --glob '*.ts'."}
+        }
+        # Relative as given, so that `file` is too.
+        if not ($place | str starts-with '/') {
+          $found | path relative-to (pwd)
+        } else {
+          $found
+        }
+      }
+    } | flatten
+  }
   let run = (^rg ...$options --regexp $pattern -- ...$places | complete)
   # ripgrep exits with 1 when nothing matched, with 2 when something went wrong.
   if $run.exit_code > 1 {
@@ -161,20 +200,40 @@ export def search [
       label: {text: "searching for this", span: (metadata $pattern).span}
     }
   }
+  let cut = {|text| if ($text | str length --grapheme-clusters) > 300 { ($text | str substring --grapheme-clusters 0..<300) + "…" } else { $text } }
   let rows = (
     $run.stdout | from json --objects | where type in ["match" "context"] | each {|event|
-      let text = ($event.data.lines.text? | default "(not text)" | str trim --right --char "\n" | str trim --right --char "\r")
-      {
-        file: ($event.data.path.text? | default "(unreadable name)" | str replace --regex '^\./' '')
-        line: $event.data.line_number
-        text: (if ($text | str length) > 300 { ($text | str substring 0..<300) + "…" } else { $text })
-        hit: ($event.type == "match")
+      let file = ($event.data.path.text? | default "(unreadable name)" | str replace --regex '^\./' '')
+      if $only_matching {
+        # One row per match on the line.
+        $event.data.submatches | each {|sub|
+          {file: $file, line: $event.data.line_number, text: (do $cut ($sub.match.text? | default "(not text)")), hit: true}
+        }
+      } else {
+        let text = ($event.data.lines.text? | default "(not text)" | str trim --right --char "\n" | str trim --right --char "\r")
+        [{file: $file, line: $event.data.line_number, text: (do $cut $text), hit: ($event.type == "match")}]
       }
-    }
+    } | flatten
   )
+  if $text {
+    # As grep: `:` after a match's line number, `-` after one around it, `--` between places.
+    mut lines = []
+    mut last_file = ""
+    mut last_line = -1
+    for row in $rows {
+      if ($lines | is-not-empty) and $around and ($last_file != $row.file or $last_line + 1 != $row.line) {
+        $lines ++= ["--"]
+      }
+      let mark = if $row.hit { ":" } else { "-" }
+      $lines ++= [$"($row.file)($mark)($row.line)($mark)($row.text)"]
+      $last_file = $row.file
+      $last_line = $row.line
+    }
+    return ($lines | str join "\n")
+  }
   if $files {
     $rows | where hit | group-by file --to-table | each {|group| {file: $group.file, matches: ($group.items | length)} }
-  } else if $context == null {
+  } else if not $around {
     $rows | reject hit
   } else {
     $rows

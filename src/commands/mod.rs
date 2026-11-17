@@ -4,6 +4,7 @@
 //! [`add`]. Everything else in nux stays as it is.
 
 pub mod kept;
+pub mod statement_value;
 pub mod try_nu;
 
 use nu_protocol::engine::{EngineState, StateWorkingSet};
@@ -14,6 +15,7 @@ pub fn add(mut engine: EngineState) -> EngineState {
         let mut working_set = StateWorkingSet::new(&engine);
         working_set.add_decl(Box::new(kept::Kept));
         working_set.add_decl(Box::new(try_nu::TryNu));
+        working_set.add_decl(Box::new(statement_value::StatementValue));
         working_set.render()
     };
     if let Err(error) = engine.merge_delta(delta) {

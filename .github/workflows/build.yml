@@ -54,6 +54,15 @@ jobs:
       - name: ripgrep
         run: sudo apt-get install -y --no-install-recommends ripgrep
 
+      # `ast-find` in the tests needs ast-grep. A fixed version: tests/ast-rewrite depends on
+      # how it matches statements (see the README there); a new one is checked on purpose.
+      - name: ast-grep
+        run: |
+          case "${{ matrix.arch }}" in x86_64) target=x86_64 ;; arm64) target=aarch64 ;; esac
+          curl -fsSL -o /tmp/ast-grep.zip "https://github.com/ast-grep/ast-grep/releases/download/0.51.3/app-$target-unknown-linux-gnu.zip"
+          sudo unzip -o /tmp/ast-grep.zip ast-grep -d /usr/local/bin
+          ast-grep --version
+
       - name: Build
         run: cargo build --release --locked
 

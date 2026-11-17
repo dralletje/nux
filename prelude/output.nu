@@ -40,8 +40,8 @@ def stderr-block [command: string]: string -> string {
 # inside a loop, a closure or a `def`, where nux does not add it:
 #     for file in $files { ^prettier --check $file | complete | check-exit $"prettier ($file)" }
 # For a command that succeeded, what it wrote to stderr is printed (warnings; `git push`
-# reports there), its normal output is not, and nothing is passed on. What came from stderr
-# is always marked: `stderr (the command): ...`.
+# reports there), and its normal output is passed on, as text (nux shows it, for a command at
+# the top level). What came from stderr is always marked: `stderr (the command): ...`.
 @search-terms "exit code" "fail on error" "set -e"
 @example "Inside a loop" { for file in (glob *.ts) { ^prettier --check $file | complete | check-exit $"prettier ($file)" } }
 export def check-exit [
@@ -55,7 +55,7 @@ export def check-exit [
     # warnings, and for some tools the result itself (`git push` reports there).
     let said = ($stderr | str trim | last-part $STDERR_LIMIT "its stderr" | stderr-block $command)
     if $said != "" { print $said }
-    return
+    return ($run.stdout? | default "" | into string)
   }
   let output = ($run.stdout | into string | str trim --right | last-part $FAILED_OUTPUT_LIMIT "the output")
   let said = ($stderr | str trim | last-part $FAILED_OUTPUT_LIMIT "its stderr" | stderr-block $command)

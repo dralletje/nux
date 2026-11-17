@@ -10,23 +10,41 @@
 //!
 //! The TypeScript version asked Nushell's parser for the statements with `ast --json`; here
 //! the parser is ours, so the statements come straight from the parsed block.
+//!
+//! Also: Nushell drops the value of every statement but the last. nux shows them, by adding
+//! `| nux-statement-value <line> '<statement>'` (src/commands/statement_value.rs) after each
+//! earlier statement that can have a value: not a declaration (`let`, `def`, `use`, ...),
+//! not an assignment, not one whose output goes to a file.
 
-use nu_protocol::ast::{Block, Expr, PipelineRedirection, RedirectionSource, RedirectionTarget};
+use nu_protocol::{
+    DeclId,
+    ast::{Block, Expr, Operator, PipelineRedirection, RedirectionSource, RedirectionTarget},
+};
+
+use crate::commands::statement_value;
 
 /// A top-level statement of the code: where it starts and ends (byte offsets in the code),
-/// whether it ends in an external command, and whether that command's output is redirected
-/// (`o> file`), in which case there is nothing to complete.
+/// whether it ends in an external command, whether that command's output is redirected
+/// (`o> file`), in which case there is nothing to complete, and whether it can have a value
+/// to show.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Statement {
     pub start: usize,
     pub end: usize,
     pub external: bool,
     pub redirected: bool,
+    pub value: bool,
 }
 
+/// The keywords that give a value: their statements are shown. Other keywords declare
+/// something (`let`, `def`, `use`, `module`) or loop (`for`, `while`), and appending a pipe to
+/// them would change what they do (`let x = 1 | f` sets x to what f gives).
+const KEYWORDS_WITH_A_VALUE: &[&str] = &["if", "match", "try"];
+
 /// The statements of a parsed block. `base` is where the code starts in Nushell's global
-/// span coordinates (`StateWorkingSet::next_span_start` before parsing).
-pub fn statements(block: &Block, base: usize) -> Vec<Statement> {
+/// span coordinates (`StateWorkingSet::next_span_start` before parsing). `keyword` tells for a
+/// command whether it is a keyword, and its name.
+pub fn statements(block: &Block, base: usize, keyword: impl Fn(DeclId) -> Option<String>) -> Vec<Statement> {
     block
         .pipelines
         .iter()
@@ -43,11 +61,18 @@ pub fn statements(block: &Block, base: usize) -> Vec<Statement> {
                 _ => None,
             };
             let end = stderr_file.unwrap_or(last.expr.span.end);
+            let redirected = last.redirection.is_some() && stderr_file.is_none();
+            let declares = match &first.expr.expr {
+                Expr::Call(call) => keyword(call.decl_id).is_some_and(|name| !KEYWORDS_WITH_A_VALUE.contains(&name.as_str())),
+                Expr::BinaryOp(_, operator, _) => matches!(operator.expr, Expr::Operator(Operator::Assignment(_))),
+                _ => false,
+            };
             Some(Statement {
                 start: first.expr.span.start.checked_sub(base)?,
                 end: end.checked_sub(base)?,
                 external: matches!(last.expr.expr, Expr::ExternalCall(..)),
-                redirected: last.redirection.is_some() && stderr_file.is_none(),
+                redirected,
+                value: !redirected && !declares,
             })
         })
         .collect()
@@ -70,8 +95,10 @@ pub struct Checked {
 
 /// Add `| complete` to the code's top-level external commands: the last statement gets just
 /// that (its record is the call's value), an earlier one also gets `| check-exit '<command>'`
-/// (only when the prelude, which has `check-exit`, is loaded).
-pub fn with_exit_checks(code: &str, statements: &[Statement], check_earlier: bool) -> Checked {
+/// (only when the prelude, which has `check-exit`, is loaded). With `show_values`, every
+/// earlier statement that can have a value gets `| nux-statement-value <line> '<statement>'`
+/// (after the check, for an external command, whose output check-exit passes on).
+pub fn with_exit_checks(code: &str, statements: &[Statement], check_earlier: bool, show_values: bool) -> Checked {
     let unchanged =
         || Checked { code: code.to_string(), changed: false, last_is_external: false, last_command: None, insertions: Vec::new() };
     let bytes = code.as_bytes();
@@ -95,22 +122,28 @@ pub fn with_exit_checks(code: &str, statements: &[Statement], check_earlier: boo
     let mut last_command = None;
     let mut insertions = Vec::new();
     for (index, statement) in statements.iter().enumerate() {
-        if !statement.external || statement.redirected {
-            continue;
-        }
         let is_last = index == statements.len() - 1;
-        if !is_last && !check_earlier {
+        let shown = shorten(&code[statement.start..statement.end]);
+        let checked = statement.external && !statement.redirected && (is_last || check_earlier);
+        // An external command's output is shown only after check-exit (it fails the call
+        // first when the command failed).
+        let show = show_values && !is_last && statement.value && (!statement.external || checked);
+        if !checked && !show {
             continue;
         }
-        let shown = shorten(&code[statement.start..statement.end]);
         out.push_str(&code[position..statement.end]);
-        let added = if is_last {
+        let mut added = String::new();
+        if checked && is_last {
             last_is_external = true;
-            last_command = Some(shown);
-            " | complete".to_string()
-        } else {
-            format!(" | complete | {CHECK_EXIT} {}", nu_raw_string(&shown))
-        };
+            last_command = Some(shown.clone());
+            added.push_str(" | complete");
+        } else if checked {
+            added.push_str(&format!(" | complete | {CHECK_EXIT} {}", nu_raw_string(&shown)));
+        }
+        if show {
+            let line = line_of(code, statement.start);
+            added.push_str(&format!(" | {} {line} {}", statement_value::NAME, nu_raw_string(&shown)));
+        }
         insertions.push((statement.end, added.len()));
         out.push_str(&added);
         position = statement.end;
@@ -123,8 +156,13 @@ pub fn with_exit_checks(code: &str, statements: &[Statement], check_earlier: boo
     Checked { code: out, changed, last_is_external, last_command, insertions }
 }
 
+/// The line (from 1) a byte position of the code is on.
+pub fn line_of(code: &str, position: usize) -> usize {
+    code.as_bytes()[..position.min(code.len())].iter().filter(|b| **b == b'\n').count() + 1
+}
+
 /// A command as shown in messages: on one line, at most 60 characters.
-fn shorten(text: &str) -> String {
+pub fn shorten(text: &str) -> String {
     let one_line = text.split_whitespace().collect::<Vec<_>>().join(" ");
     if one_line.chars().count() > 60 {
         one_line.chars().take(57).collect::<String>() + "..."
@@ -160,7 +198,28 @@ mod tests {
     use super::*;
 
     fn st(start: usize, end: usize, external: bool, redirected: bool) -> Statement {
-        Statement { start, end, external, redirected }
+        Statement { start, end, external, redirected, value: !redirected }
+    }
+
+    #[test]
+    fn shows_the_values_of_earlier_statements() {
+        // `let` gives no value; `ls` and the external do; the last statement is the call's value.
+        let code = "let a = 1\nls\n^git status\n42";
+        let statements = [
+            Statement { value: false, ..st(0, 9, false, false) },
+            st(10, 12, false, false),
+            st(13, 24, true, false),
+            st(25, 27, false, false),
+        ];
+        let result = with_exit_checks(code, &statements, true, true);
+        assert_eq!(
+            result.code,
+            "let a = 1\nls | nux-statement-value 2 r#'ls'#\n\
+             ^git status | complete | check-exit r#'^git status'# | nux-statement-value 3 r#'^git status'#\n42"
+        );
+        // Without the prelude, an external's output is not shown (no check-exit before it).
+        let result = with_exit_checks(code, &statements, false, true);
+        assert_eq!(result.code, "let a = 1\nls | nux-statement-value 2 r#'ls'#\n^git status\n42");
     }
 
     #[test]
@@ -168,7 +227,7 @@ mod tests {
         let code = "let a = 1\ngit add -A\ngit push # now\n";
         let statements = [st(0, 9, false, false), st(10, 20, true, false), st(21, 29, true, false)];
         assert_eq!(
-            with_exit_checks(code, &statements, true),
+            with_exit_checks(code, &statements, true, false),
             Checked {
                 code: "let a = 1\ngit add -A | complete | check-exit r#'git add -A'#\ngit push | complete # now\n".into(),
                 changed: true,
@@ -180,23 +239,23 @@ mod tests {
         );
         // Without the prelude there is no check-exit: only the last one is completed.
         assert_eq!(
-            with_exit_checks(code, &statements, false).code,
+            with_exit_checks(code, &statements, false, false).code,
             "let a = 1\ngit add -A\ngit push | complete # now\n"
         );
     }
 
     #[test]
     fn leaves_other_code_alone() {
-        assert!(!with_exit_checks("ls | length", &[st(0, 11, false, false)], true).changed);
-        assert!(!with_exit_checks("^echo x o> f", &[st(0, 7, true, true)], true).changed);
-        assert!(!with_exit_checks("let x = ", &[], true).changed);
-        assert!(!with_exit_checks("git push", &[st(0, 99, true, false)], true).changed);
+        assert!(!with_exit_checks("ls | length", &[st(0, 11, false, false)], true, true).changed);
+        assert!(!with_exit_checks("^echo x o> f", &[st(0, 7, true, true)], true, true).changed);
+        assert!(!with_exit_checks("let x = ", &[], true, true).changed);
+        assert!(!with_exit_checks("git push", &[st(0, 99, true, false)], true, true).changed);
     }
 
     #[test]
     fn counts_in_bytes() {
         // "é" is two bytes: the statement ends at byte 9, not character 8.
-        let result = with_exit_checks("^echo é\n1", &[st(0, 8, true, false), st(9, 10, false, false)], true);
+        let result = with_exit_checks("^echo é\n1", &[st(0, 8, true, false), st(9, 10, false, false)], true, false);
         assert_eq!(result.code, "^echo é | complete | check-exit r#'^echo é'#\n1");
         assert!(!result.last_is_external);
     }

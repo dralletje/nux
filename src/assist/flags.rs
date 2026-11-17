@@ -46,7 +46,24 @@ pub fn hint(context: &ErrorContext) -> Option<String> {
         .collect::<Vec<_>>()
         .join("\n");
     let mean = suggestion.map(|s| format!("Did you mean --{s}? ")).unwrap_or_default();
-    Some(format!("{mean}The flags of `{command}`:\n{list}{instead}"))
+    let known = other_tool(command, given).map(|way| format!("{way}\n")).unwrap_or_default();
+    Some(format!("{known}{mean}The flags of `{command}`:\n{list}{instead}"))
+}
+
+/// Flags of another tool that have no flag here because there is a way already: what that is.
+/// (grep's, for `search`: the most common unknown flags in the review of 2026-11-17.)
+fn other_tool(command: &str, flag: &str) -> Option<&'static str> {
+    Some(match (command, flag) {
+        ("search", "n" | "line-number") => "`-n`: not needed, `line` is always there.",
+        ("search", "r" | "R" | "recursive") => "`-r`: not needed, folders are always searched through.",
+        ("search", "c" | "count") => "`-c`: --files gives one row per file with its number of matches.",
+        ("search", "e" | "regexp") => "`-e`: one pattern; for either of two, 'a|b'.",
+        ("search", "w" | "word-regexp") => "`-w`: write the word between \\b in the pattern: '\\bword\\b'.",
+        ("search", "E" | "P" | "extended-regexp" | "perl-regexp") => "The pattern is always a regular expression (Rust syntax); --literal for plain text.",
+        ("search", "v" | "invert-match") => "`-v`: lines without it are a `where`: open --raw f | lines | where $it !~ 'x'.",
+        ("search", "h" | "H" | "no-filename" | "with-filename") => "`file` is a column of its own: `get text` for only the lines.",
+        _ => return None,
+    })
 }
 
 /// The flag as the agent wrote it (`--short`, `-s`), from the code when it is there.

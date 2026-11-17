@@ -1,0 +1,302 @@
+[
+  {
+    "name": "import, the case that was found",
+    "why": "A statement pattern without `;` matches the statement with its `;`. 0.2.0 replaced the `;` too (calls ~644, 647, 753, 757 of the review).",
+    "lang": "ts", "ext": "ts",
+    "source": "import { a } from \"./x\";\nimport { b } from \"./y\";\n",
+    "pattern": "import { $$$A } from \"./x\"",
+    "rewrite": "import { $$$A } from \"./z\"",
+    "expected": "import { a } from \"./z\";\nimport { b } from \"./y\";\n",
+    "trailing": ";"
+  },
+  {
+    "name": "import, `;` in the pattern and the rewrite",
+    "why": "The pattern names the `;`: it is part of the match and of the replacement. Nothing is left over.",
+    "lang": "ts", "ext": "ts",
+    "source": "import { a } from \"./x\";\n",
+    "pattern": "import { $$$A } from \"./x\";",
+    "rewrite": "import { $$$A } from \"./z\";",
+    "expected": "import { a } from \"./z\";\n",
+    "trailing": null
+  },
+  {
+    "name": "import, `;` only in the rewrite",
+    "why": "The rewrite ends in what the match has after the pattern: it is replaced along, so no `;;`.",
+    "lang": "ts", "ext": "ts",
+    "source": "import { a } from \"./x\";\n",
+    "pattern": "import { $$$A } from \"./x\"",
+    "rewrite": "import { $$$A } from \"./z\";",
+    "expected": "import { a } from \"./z\";\n",
+    "trailing": null
+  },
+  {
+    "name": "import without `;` (ASI style)",
+    "why": "Nothing after the pattern: nothing to keep.",
+    "lang": "ts", "ext": "ts",
+    "source": "import { a } from \"./x\"\nconst b = 1\n",
+    "pattern": "import { $$$A } from \"./x\"",
+    "rewrite": "import { $$$A } from \"./z\"",
+    "expected": "import { a } from \"./z\"\nconst b = 1\n",
+    "trailing": null
+  },
+  {
+    "name": "import, other spacing than the pattern",
+    "why": "The pattern's text is followed through the match with whitespace left aside.",
+    "lang": "ts", "ext": "ts",
+    "source": "import {a,b} from \"./x\";\n",
+    "pattern": "import { $$$A } from \"./x\"",
+    "rewrite": "import { $$$A } from \"./z\"",
+    "expected": "import { a,b } from \"./z\";\n",
+    "trailing": ";"
+  },
+  {
+    "name": "import of nothing: an empty `$$$` hole last",
+    "why": "A hole for many that matched nothing has no place in the match; the pattern is followed as if it were not there.",
+    "lang": "ts", "ext": "ts",
+    "source": "import {} from \"./x\";\n",
+    "pattern": "import { $$$A } from \"./x\"",
+    "rewrite": "import { $$$A } from \"./z\"",
+    "expected": "import {  } from \"./z\";\n",
+    "trailing": ";"
+  },
+  {
+    "name": "default import, a hole in the middle",
+    "why": "The pattern ends in literal text after its last hole.",
+    "lang": "ts", "ext": "ts",
+    "source": "import x from \"y\";\n",
+    "pattern": "import $X from \"y\"",
+    "rewrite": "import $X from \"z\"",
+    "expected": "import x from \"z\";\n",
+    "trailing": ";"
+  },
+  {
+    "name": "return, the pattern ends in a hole",
+    "why": "Where the pattern ends is where its last hole ended in the match.",
+    "lang": "ts", "ext": "ts",
+    "source": "function f() {\n  return x;\n}\n",
+    "pattern": "return $X",
+    "rewrite": "return wrap($X)",
+    "expected": "function f() {\n  return wrap(x);\n}\n",
+    "trailing": ";"
+  },
+  {
+    "name": "return, a comment before the `;`",
+    "why": "Everything after the pattern stays: the comment with the `;`.",
+    "lang": "ts", "ext": "ts",
+    "source": "function f() {\n  return x /* why */;\n}\n",
+    "pattern": "return $X",
+    "rewrite": "return wrap($X)",
+    "expected": "function f() {\n  return wrap(x) /* why */;\n}\n",
+    "trailing": " /* why */;"
+  },
+  {
+    "name": "return, a line comment after the `;`",
+    "why": "A comment after the statement is not part of the match at all.",
+    "lang": "ts", "ext": "ts",
+    "source": "function f() {\n  return x; // done\n}\n",
+    "pattern": "return $X",
+    "rewrite": "return wrap($X)",
+    "expected": "function f() {\n  return wrap(x); // done\n}\n",
+    "trailing": ";"
+  },
+  {
+    "name": "return with an anonymous hole `$_`",
+    "why": "ast-grep does not say where an anonymous hole matched; nux names it ($NUXANON0) for the search, so that it does.",
+    "lang": "ts", "ext": "ts",
+    "source": "function f() {\n  return x;\n}\n",
+    "pattern": "return $_",
+    "rewrite": "return null",
+    "expected": "function f() {\n  return null;\n}\n",
+    "trailing": ";"
+  },
+  {
+    "name": "two anonymous holes still match different things",
+    "why": "Each anonymous hole gets a name of its own: they do not have to match the same text, as with `$_`.",
+    "lang": "ts", "ext": "ts",
+    "source": "const v = pick(a, b);\n",
+    "pattern": "pick($_, $_)",
+    "rewrite": "choose()",
+    "expected": "const v = choose();\n",
+    "trailing": null
+  },
+  {
+    "name": "const declaration",
+    "why": "A declaration is a statement with its `;`.",
+    "lang": "ts", "ext": "ts",
+    "source": "const a = 1;\n",
+    "pattern": "const $N = $V",
+    "rewrite": "let $N = $V",
+    "expected": "let a = 1;\n",
+    "trailing": ";"
+  },
+  {
+    "name": "export const",
+    "why": "The same, inside an export.",
+    "lang": "ts", "ext": "ts",
+    "source": "export const a = 1;\n",
+    "pattern": "export const $A = $B",
+    "rewrite": "export let $A = $B",
+    "expected": "export let a = 1;\n",
+    "trailing": ";"
+  },
+  {
+    "name": "throw",
+    "why": "Another statement.",
+    "lang": "ts", "ext": "ts",
+    "source": "throw new Error(\"x\");\n",
+    "pattern": "throw $E",
+    "rewrite": "throw wrap($E)",
+    "expected": "throw wrap(new Error(\"x\"));\n",
+    "trailing": ";"
+  },
+  {
+    "name": "a call: an expression, not a statement",
+    "why": "The match is the call without the `;`, as before. Nothing changes here.",
+    "lang": "ts", "ext": "ts",
+    "source": "foo(1);\n",
+    "pattern": "foo($A)",
+    "rewrite": "bar($A)",
+    "expected": "bar(1);\n",
+    "trailing": null
+  },
+  {
+    "name": "several statements on one line",
+    "why": "Only the matched statement changes; the `;` of each stays where it was.",
+    "lang": "ts", "ext": "ts",
+    "source": "function f() { a(); return x; }\n",
+    "pattern": "return $X",
+    "rewrite": "return y",
+    "expected": "function f() { a(); return y; }\n",
+    "trailing": ";"
+  },
+  {
+    "name": "a rewrite into two statements",
+    "why": "The kept `;` ends the last of them; the rewrite writes the `;` between them itself.",
+    "lang": "ts", "ext": "ts",
+    "source": "function f() {\n  return x;\n}\n",
+    "pattern": "return $X",
+    "rewrite": "log($X); return $X",
+    "expected": "function f() {\n  log(x); return x;\n}\n",
+    "trailing": ";"
+  },
+  {
+    "name": "deleting a statement",
+    "why": "A rewrite to '' deletes the whole statement, its `;` included: leaving a lone `;` is never what is wanted.",
+    "lang": "ts", "ext": "ts",
+    "source": "const a = require(\"a\");\nconst b = 2;\n",
+    "pattern": "const $N = require($M)",
+    "rewrite": "",
+    "expected": "\nconst b = 2;\n",
+    "trailing": null
+  },
+  {
+    "name": "deleting a call leaves its `;` (ast-grep's match, unchanged)",
+    "why": "The match of an expression has no `;`, so a lone `;` stays, as in 0.2.0. To delete the statement, put the `;` in the pattern (next case).",
+    "lang": "ts", "ext": "ts",
+    "source": "console.log(1);\nfoo();\n",
+    "pattern": "console.log($A)",
+    "rewrite": "",
+    "expected": ";\nfoo();\n",
+    "trailing": null
+  },
+  {
+    "name": "deleting a call with `;` in the pattern",
+    "why": "With the `;` in the pattern, the match is the statement.",
+    "lang": "ts", "ext": "ts",
+    "source": "console.log(1);\nfoo();\n",
+    "pattern": "console.log($A);",
+    "rewrite": "",
+    "expected": "\nfoo();\n",
+    "trailing": null
+  },
+  {
+    "name": "JavaScript",
+    "why": "The same grammar family as TypeScript.",
+    "lang": "js", "ext": "js",
+    "source": "const a = require(\"a\");\n",
+    "pattern": "const $N = require($M)",
+    "rewrite": "import $N from $M",
+    "expected": "import a from \"a\";\n",
+    "trailing": ";"
+  },
+  {
+    "name": "TSX",
+    "why": "And with JSX.",
+    "lang": "tsx", "ext": "tsx",
+    "source": "export const a = <div />;\n",
+    "pattern": "export const $A = $B",
+    "rewrite": "export const $A = () => $B",
+    "expected": "export const a = () => <div />;\n",
+    "trailing": ";"
+  },
+  {
+    "name": "Rust let",
+    "why": "Rust statements end in `;` too.",
+    "lang": "rust", "ext": "rs",
+    "source": "fn f() {\n    let x = 1;\n}\n",
+    "pattern": "let $X = $Y",
+    "rewrite": "let mut $X = $Y",
+    "expected": "fn f() {\n    let mut x = 1;\n}\n",
+    "trailing": ";"
+  },
+  {
+    "name": "Rust use",
+    "why": "A declaration with its `;`.",
+    "lang": "rust", "ext": "rs",
+    "source": "use a::b;\n",
+    "pattern": "use $P",
+    "rewrite": "use crate::$P",
+    "expected": "use crate::a::b;\n",
+    "trailing": ";"
+  },
+  {
+    "name": "Rust expression",
+    "why": "An expression inside a statement: no `;` in the match.",
+    "lang": "rust", "ext": "rs",
+    "source": "fn f() -> Option<u8> {\n    let v = x.unwrap();\n    v\n}\n",
+    "pattern": "$A.unwrap()",
+    "rewrite": "$A?",
+    "expected": "fn f() -> Option<u8> {\n    let v = x?;\n    v\n}\n",
+    "trailing": null
+  },
+  {
+    "name": "C return",
+    "why": "C statements.",
+    "lang": "c", "ext": "c",
+    "source": "int f() { return 1; }\n",
+    "pattern": "return $X",
+    "rewrite": "return ($X)",
+    "expected": "int f() { return (1); }\n",
+    "trailing": ";"
+  },
+  {
+    "name": "Java return",
+    "why": "Java statements.",
+    "lang": "java", "ext": "java",
+    "source": "class A { int f() { return 1; } }\n",
+    "pattern": "return $X",
+    "rewrite": "return -$X",
+    "expected": "class A { int f() { return -1; } }\n",
+    "trailing": ";"
+  },
+  {
+    "name": "Python: no terminators",
+    "why": "Nothing after the pattern in a language without `;`.",
+    "lang": "python", "ext": "py",
+    "source": "x = 1\n",
+    "pattern": "$A = $B",
+    "rewrite": "$A = int($B)",
+    "expected": "x = int(1)\n",
+    "trailing": null
+  },
+  {
+    "name": "Go: no terminators",
+    "why": "The same in Go.",
+    "lang": "go", "ext": "go",
+    "source": "package p\n\nfunc f() {\n\tx := 1\n\t_ = x\n}\n",
+    "pattern": "$A := $B",
+    "rewrite": "var $A = $B",
+    "expected": "package p\n\nfunc f() {\n\tvar x = 1\n\t_ = x\n}\n",
+    "trailing": null
+  }
+]
