@@ -1,7 +1,8 @@
 //! Every invocation is recorded, to see afterwards how agents really use it. One file per
 //! day (UTC), one JSON object per line, in the same format as the TypeScript nux, so that
-//! `nux-log` reads both. Nothing is left out or masked: the code is kept exactly as it was
-//! given, the reply exactly as it was printed.
+//! `nux-log` reads both. Nothing is masked: the code is kept exactly as it was given, the
+//! reply exactly as it was printed, and everything else the caller saw on stdout and stderr
+//! (only a very long stream loses its middle; see `capture`).
 //!
 //! An invocation writes two lines with the same `id`: "start" before anything runs, "end"
 //! when it is over. A start without an end is an invocation that was killed outright.
@@ -103,6 +104,11 @@ pub fn start(start: Start) {
 }
 
 /// Write the end line, once (the first call wins: a signal may race the result).
+///
+/// `text` is the reply: the result, or the error. `stdout` and `stderr` are everything the
+/// caller got on each (`capture`), the reply included: what `print` printed, the `stderr
+/// (cmd): ...` lines, what commands wrote themselves. Null when that stream was a terminal.
+/// For a call that was stopped, what it had printed until then.
 pub fn end(ok: bool, outcome: Outcome, error_code: Option<&str>, text: &str) {
     let Some(current) = CURRENT.get() else { return };
     let Ok(mut open) = current.lock() else { return };
@@ -110,6 +116,7 @@ pub fn end(ok: bool, outcome: Outcome, error_code: Option<&str>, text: &str) {
         return;
     }
     open.ended = true;
+    let (stdout, stderr) = crate::capture::seen();
     append(json!({
         "event": "end",
         "id": open.id,
@@ -119,5 +126,7 @@ pub fn end(ok: bool, outcome: Outcome, error_code: Option<&str>, text: &str) {
         "outcome": outcome.as_str(),
         "error_code": error_code,
         "text": text,
+        "stdout": stdout,
+        "stderr": stderr,
     }));
 }

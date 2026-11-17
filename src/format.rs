@@ -96,6 +96,9 @@ impl SourceFile<'_> {
 /// The file a span is in, and its contents. Implemented for an engine and a working set.
 pub trait Sources {
     fn file_of(&self, offset: usize) -> Option<SourceFile<'_>>;
+    /// The signature of a command by its name, as the code sees it. For a parse error that is
+    /// the working set: a `use` earlier in the same code is not in the engine yet.
+    fn signature_of(&self, name: &str) -> Option<nu_protocol::Signature>;
 }
 
 fn file_in<'a>(files: impl Iterator<Item = &'a nu_protocol::engine::CachedFile>, offset: usize) -> Option<SourceFile<'a>> {
@@ -109,11 +112,17 @@ impl Sources for nu_protocol::engine::EngineState {
     fn file_of(&self, offset: usize) -> Option<SourceFile<'_>> {
         file_in(self.files(), offset)
     }
+    fn signature_of(&self, name: &str) -> Option<nu_protocol::Signature> {
+        self.find_decl(name.as_bytes(), &[]).map(|decl| self.get_decl(decl).signature())
+    }
 }
 
 impl Sources for nu_protocol::engine::StateWorkingSet<'_> {
     fn file_of(&self, offset: usize) -> Option<SourceFile<'_>> {
         file_in(self.files(), offset)
+    }
+    fn signature_of(&self, name: &str) -> Option<nu_protocol::Signature> {
+        self.find_decl(name.as_bytes()).map(|decl| self.get_decl(decl).signature())
     }
 }
 
@@ -131,6 +140,9 @@ impl Sources for AsGiven<'_> {
             return Some(file);
         }
         Some(SourceFile { content: self.code.as_bytes(), insertions: self.insertions, ..file })
+    }
+    fn signature_of(&self, name: &str) -> Option<nu_protocol::Signature> {
+        self.engine.signature_of(name)
     }
 }
 

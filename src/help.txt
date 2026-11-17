@@ -108,11 +108,13 @@ COMMANDS THAT GIVE TABLES   (examples for each: nux help <command>)
                                             the hunks those lines are in)
       git info                              root, branch, head, upstream, ahead, behind, clean, remotes
       git status | where ... | git add      stage the rows (or paths); gives git status after
-      ^pnpm typecheck | complete | get stdout | from tsc
+      ^pnpm typecheck | complete | from tsc
                                             TypeScript errors: file, line, column, category,
                                             code, message. From whatever the project runs tsc
                                             with: its script, ^npx tsc --noEmit, a build. Do
-                                            not read tsc's text.
+                                            not read tsc's text. Give it all of `complete`
+                                            (not `get stdout`): a failure without errors is
+                                            then an error, never an empty table.
       ^node --test --test-reporter=tap | complete | from tap
                                             test results: name, status, duration, file, line,
                                             error. For a package script:
@@ -206,6 +208,7 @@ FROM BASH
       mkdir -p a/b                  mkdir a/b
       rm -rf dir                    rm -r dir
       cat file                      open --raw file    (open file: json, yaml, toml, csv as data)
+      cat notes.md                  open --raw notes.md (without --raw: a table of its elements)
       grep pat file                 search pat file    (a value: where $it =~ pat)
       sed 's/a/b/'                  str replace a b    (-r for a regex, -a for every match)
       for f in *.md; do ...         for f in (glob *.md) { ... }
@@ -236,6 +239,8 @@ GOOD TO KNOW
   - Strings: '...' and r#'...'# have no escapes; "..." has \n \t \" \\ and \u{1b} (not
     \u001b). A value in text needs both the $ and the ( ):
     $"hello ($name)". "hello $name" stays as written. Colors out of text: `ansi strip`.
+    A regular expression goes in '...' (search 'a\.b'; in "..." `\.` is an error). A ' in
+    text: "it's" or r#'it's'#; bash's '"'"' is five characters here.
   - A flag with a value from a variable is one string: ^mysql $"--password=($pw)" db
     (`-p $pw` would be two arguments). External commands see environment variables
     ($env.X, with-env), not `let` variables.

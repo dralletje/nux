@@ -460,6 +460,28 @@ fn from_tsc_reads(version: &str) {
     assert_eq!(rows("build-pretty.txt"), build, "{version}: --pretty gives the same rows, without the summary");
 }
 
+/// `from tsc` takes the record of `complete`, reads both streams, and fails when the command
+/// failed without a diagnostic: `[]` must mean "no errors", never "tsc did not run". From
+/// `pnpm -r`, the package folder before each line becomes part of the file.
+#[test]
+fn from_tsc_takes_complete_and_never_hides_a_failure() {
+    let plain = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/tsc5/plain.txt");
+    let plain = format!("(open --raw '{}')", plain.display());
+    let run = nux(&[], &format!("{{stdout: '', stderr: {plain}, exit_code: 2}} | from tsc | length"));
+    assert_eq!(run.stdout, "3\n", "diagnostics on stderr: {}", run.stdout);
+    let run = nux(&[], "{stdout: '', stderr: '', exit_code: 0} | from tsc");
+    assert_eq!(run.stdout, "[]\n");
+    let run = nux(&[], "{stdout: '', stderr: 'ERR_PNPM_NO_SCRIPT Missing script: typecheck', exit_code: 1} | from tsc");
+    assert_eq!(run.status, 1, "{}", run.stdout);
+    assert!(run.stdout.contains("from tsc: this is not what tsc prints"), "{}", run.stdout);
+    assert!(run.stdout.contains("Missing script: typecheck"), "{}", run.stdout);
+    let run = nux(
+        &[],
+        &format!("{plain} | lines | each {{|l| $'packages/engine typecheck: ($l)' }} | str join (char nl) | from tsc | each {{|r| $'($r.file):($r.line)' }} | str join ' '"),
+    );
+    assert_eq!(run.stdout, "packages/engine/a.ts:1 packages/engine/a.ts:3 packages/engine/a.ts:6\n", "{}", run.stdout);
+}
+
 
 /// `py --with` and `js --with`: each key is defined in the code under its name, with its type,
 /// next to `data` (the pipeline input), which stays. Without --with, nothing changes; with
@@ -673,6 +695,44 @@ fn an_unknown_flag_lists_the_flags_there_are() {
     let run = nux(&[], "git log --oneline");
     assert!(run.stdout.contains("The flags of `git log`:"), "{}", run.stdout);
     assert!(run.stdout.contains("`^git log --oneline`"), "{}", run.stdout);
+    // A command of a module the same code `use`s: its own flags, not those of Nushell's
+    // `http` (which has --full, and so was "Did you mean --full?" for --full).
+    let run = nux(&[], "use nux/cookie-jar\ncookie-jar http /tmp/jar get https://example.com --full");
+    assert!(run.stdout.contains("The flags of `cookie-jar http`:"), "{}", run.stdout);
+    assert!(run.stdout.contains("--no-follow"), "{}", run.stdout);
+    assert!(!run.stdout.contains("Did you mean --full"), "{}", run.stdout);
+}
+
+/// edit-file says where the file stops matching (and names bash quoting, which is literal
+/// text in Nushell); an edit that changes nothing is a warning.
+#[test]
+fn edit_file_says_where_the_text_differs() {
+    let dir = scratch().join(format!("edit-file-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("a.js");
+    std::fs::write(&file, "function greet(name) {\n    return 'hello ' + name;\n}\nconst it's = 1\n").unwrap();
+    let f = file.display();
+    let run = nux(&[], &format!("edit-file '{f}' 'return \"hello \" + name' 'x'"));
+    assert_eq!(run.status, 1);
+    assert!(run.stdout.contains("The first 7 characters match, at line 2. Then the file has:"), "{}", run.stdout);
+    assert!(run.stdout.contains("'hello ' + name;⏎}"), "{}", run.stdout);
+    let run = nux(&[], &format!("edit-file '{f}' \"function greet(name) {{\n  return\" 'x'"));
+    assert!(run.stdout.contains("with other whitespace"), "{}", run.stdout);
+    let run = nux(&[], &format!("edit-file '{f}' 'const it'\"'\"'s = 1' 'x'"));
+    assert!(run.stdout.contains("is bash quoting"), "{}", run.stdout);
+    let run = nux(&[], &format!("edit-file '{f}' 'greet' 'greet'"));
+    assert_eq!(run.status, 0);
+    assert!(run.stderr.contains("edit 1 changes nothing"), "{}", run.stderr);
+}
+
+/// `nux help` finds the commands of modules that are loaded only with `use`.
+#[test]
+fn help_finds_commands_of_modules_to_use() {
+    let run = nux(&["help", "cookie-jar", "http"], "");
+    assert_eq!(run.status, 0, "{}{}", run.stdout, run.stderr);
+    assert!(run.stdout.contains("--no-follow"), "{}", run.stdout);
+    let run = nux(&["help", "no-such-module-xyz", "x"], "");
+    assert_ne!(run.status, 0);
 }
 
 #[test]
@@ -688,6 +748,32 @@ fn bash_habits_get_the_nushell_way() {
     assert!(hint("for f in *.txt; do echo $f; done").contains("glob *.txt"));
     // Nushell explains these itself: no hint of ours.
     assert_eq!(hint("ls && ls"), "");
+}
+
+/// Backslashes in strings, several glob patterns, Markdown opened as a table, and `range`.
+#[test]
+fn common_mistakes_get_the_way_to_write_it() {
+    let hint = |code: &str| nux(&[], code).stdout;
+    let run = hint("search \"a\\.b\" .");
+    assert!(run.contains("`\\.` is none") && run.contains("r#'...'#"), "{run}");
+    let run = hint("'it\\'s' | str length");
+    assert!(run.contains("'...' has no escapes"), "{run}");
+    let run = hint("glob a b");
+    assert!(run.contains("`glob` takes one pattern"), "{run}");
+    let run = hint("glob --no-dir a b");
+    assert!(run.contains("`glob` takes one pattern"), "{run}");
+
+    let dir = scratch().join(format!("md-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("notes.md"), "# Title\n\ntext\n").unwrap();
+    let run = hint(&format!("open '{}' | lines", dir.join("notes.md").display()));
+    assert!(run.contains("`open --raw notes.md`"), "{run}");
+    // Other input type errors: no Markdown hint.
+    assert!(!hint("[1 2] | lines").contains("Markdown"));
+
+    let run = nux(&[], "[a b c d] | range 1..2");
+    assert_eq!((run.status, run.stdout.as_str()), (0, "[b,c]\n"), "{}", run.stderr);
+    assert!(run.stderr.contains("write `slice`"), "{}", run.stderr);
 }
 
 /// Text in ( ) inside $"..." runs as code: both errors that gives get a hint that says so.
@@ -790,6 +876,42 @@ fn every_call_is_in_the_usage_log() {
         .collect();
     assert!(lines.contains("\"reason\":\"testing the log\""));
     assert!(lines.contains("\"text\":\"42\""));
+}
+
+/// The log has all the caller saw, not only the reply: what `print` printed, the stderr of a
+/// command that failed (printed by nux before the error), and what a command wrote itself.
+#[test]
+fn the_usage_log_has_all_the_caller_saw() {
+    let dir = scratch().join(format!("log-seen-{}", std::process::id()));
+    let end_of = |code: &str| {
+        let _ = std::fs::remove_dir_all(&dir);
+        let run = nux_with(&[], code, &[("NUX_LOG_DIR", dir.as_path())]);
+        let log: String =
+            std::fs::read_dir(&dir).unwrap().map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap()).collect();
+        let end = log
+            .lines()
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+            .find(|line| line["event"] == "end")
+            .unwrap();
+        (run, end)
+    };
+
+    let (run, end) = end_of("print 'printed'\nprint -e 'warned'\nfor i in [1] { ^sh -c 'echo by-itself >&2' }\n'reply'");
+    assert_eq!(end["text"], "reply");
+    assert_eq!(end["stdout"], run.stdout, "stdout is logged as the caller got it");
+    assert_eq!(end["stdout"], "printed\nreply\n");
+    assert_eq!(end["stderr"], run.stderr);
+    assert!(run.stderr.contains("warned") && run.stderr.contains("by-itself"), "{}", run.stderr);
+
+    // The case from the review: git's own message, before nux's "exited with code".
+    let repo = dir.with_extension("repo");
+    let _ = std::fs::remove_dir_all(&repo);
+    let (run, end) = end_of(&format!(
+        "^git init -q '{r}'\ncd '{r}'\n^git mv does-not-exist.txt b.txt\nprint never",
+        r = repo.display()
+    ));
+    assert!(end["stdout"].as_str().unwrap().contains("fatal: bad source"), "{end}");
+    assert_eq!(end["stdout"], run.stdout);
 }
 
 /// `nux-log` reads the log back: `runner` says which nux, and a line cut short (a write

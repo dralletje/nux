@@ -12,6 +12,13 @@
 use super::ErrorContext;
 
 pub fn hint(context: &ErrorContext) -> Option<String> {
+    if context.code.as_deref() == Some("nu::parser::extra_positional") && second_pattern(context) {
+        return Some(
+            "`glob` takes one pattern. For several: braces, `glob {src,test}/**/*.ts`, or \
+             `[a b] | each {|p| glob $p } | flatten`."
+                .into(),
+        );
+    }
     if context.message != "error with glob pattern" {
         return None;
     }
@@ -37,6 +44,18 @@ pub fn hint(context: &ErrorContext) -> Option<String> {
         "{}\nSeparate patterns: [a b] | each {{|p| glob $p }} | flatten",
         hints.join("\n")
     ))
+}
+
+/// `glob a b`: the extra argument comes right after `glob` and one pattern (flags aside).
+fn second_pattern(context: &ErrorContext) -> bool {
+    // The line up to the extra argument, by its place (splitting at its text would find a
+    // `b` in `glob` for `glob a b`).
+    let (Some(source), Some(&at)) = (&context.source, context.places.first()) else { return false };
+    let Some(before) = source.get(..at) else { return false };
+    let before = before.rsplit('\n').next().unwrap_or_default();
+    let words: Vec<&str> = before.split_whitespace().collect();
+    let Some(at) = words.iter().rposition(|w| w.trim_start_matches('(') == "glob") else { return false };
+    words[at + 1..].iter().filter(|w| !w.starts_with('-')).count() == 1
 }
 
 /// The pattern as written in the code: 'x', "x", `x`, r#'x'#, or bare. None for anything else

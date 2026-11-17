@@ -180,3 +180,13 @@ export def search [
     $rows
   }
 }
+
+# The old name of `slice`, which agents still write: it works, and says so on stderr.
+@search-terms slice
+@example "Rows 2 to 4" { [a b c d e] | range 1..3 }
+export def range [
+  rows: range # the rows to give, by index from 0: 1..3, 5.., ..<10
+]: any -> any {
+  print -e "range: this is `slice` in Nushell now; write `slice`"
+  $in | slice $rows
+}

@@ -41,12 +41,15 @@ export def main [
     if ($old | is-empty) {
       error make {msg: $"edit-file: edit ($number) has an empty `old`; nothing was written"}
     }
+    if $old == $new {
+      print -e $"edit-file: edit ($number) changes nothing: its old and new are the same \(($shown)\)"
+    }
     let parts = ($text | split row $old)
     let count = ($parts | length) - 1
     if $count == 0 {
       error make {
         msg: $"edit-file: edit ($number) not found in ($path); nothing was written"
-        help: $"Looked for: ($shown)\nThe text has to match exactly, including indentation and line endings."
+        help: $"Looked for: ($shown)\n(nearest $text $old)"
       }
     }
     if $count > 1 and not $all {
@@ -60,4 +63,38 @@ export def main [
   }
   $text | save --force --raw $path
   {path: $path, edits: ($edits | length), replacements: $replacements}
+}
+
+# Why `old` is not in `text`: where the file stops matching it. In characters (graphemes).
+def nearest [text: string, old: string]: nothing -> string {
+  let shown = {|s| $s | str substring --grapheme-clusters 0..<50 | str replace --all "\n" "⏎" }
+  # Bash's way to put a ' in '...' is literal text in Nushell.
+  let quoting = if ($old | str contains `'"'"'`) {
+    "\n`'\"'\"'` is bash quoting: in Nushell it is those five characters. For a ' in the text use r#'...'# or \"...\"."
+  } else { "" }
+  let squeezed = {|s| $s | str replace --all --regex '\s+' ' ' | str trim }
+  if ((do $squeezed $text) | str contains (do $squeezed $old)) {
+    return $"The text is there, but with other whitespace: indentation, line endings or spaces differ.($quoting)"
+  }
+  # The longest start of `old` that is in the file (a start that is there has every shorter
+  # start there too, so: halve).
+  mut low = 0
+  mut high = ($old | str length --grapheme-clusters)
+  while $high - $low > 1 {
+    let middle = (($low + $high) // 2)
+    if ($text | str contains ($old | str substring --grapheme-clusters 0..<$middle)) {
+      $low = $middle
+    } else {
+      $high = $middle
+    }
+  }
+  if $low < 5 {
+    return $"Not even its start is in the file: is it the right file?($quoting)"
+  }
+  let start = ($old | str substring --grapheme-clusters 0..<$low)
+  let line = ($text | split row $start | first | split row "\n" | length)
+  let after = ($text | split row $start | skip 1 | str join $start)
+  let wanted = (do $shown ($old | str substring --grapheme-clusters $low..))
+  let there = (do $shown $after)
+  $"The first ($low) characters match, at line ($line). Then the file has:\n  ($there)\nwhere edit-file was given:\n  ($wanted)($quoting)"
 }

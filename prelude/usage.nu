@@ -8,9 +8,12 @@
 # had stop and list),
 # outcome (ok, error, external_failed, usage_error, start_failed, caller_killed, or
 # unfinished: still running, or killed outright; the TypeScript nux also had timeout and
-# session_failed), duration, reason, code, error_code, text (what the caller got to see),
-# conversation, cwd, argv, pid, id; and, filled only by the TypeScript nux (null for the
-# Rust one): session, session_named, timeout_seconds, json.
+# session_failed), duration, reason, code, error_code, text (the reply: the call's result or
+# its error), stdout and stderr (everything the caller got to see on each, the reply
+# included: what `print` printed, the `stderr (cmd): ...` lines, what external commands
+# wrote themselves; for a stopped call what it printed until then; null in entries written
+# before nux logged them, and when the stream was a terminal), conversation, cwd, argv, pid, id; and, filled only by the
+# TypeScript nux (null for the Rust one): session, session_named, timeout_seconds, json.
 @example "what failed today, and why it was run" { nux-log | where outcome not-in [ok unfinished] | select at outcome reason code text }
 @example "which commands agents look up" {
   nux-log --since 7day
@@ -55,7 +58,7 @@ export def nux-log [
       $text | lines | each {|line| try { $line | from json } catch { null } } | compact
     }
   } | flatten)
-  let no_end = {duration_ms: null, ok: null, outcome: "unfinished", error_code: null, text: null}
+  let no_end = {duration_ms: null, ok: null, outcome: "unfinished", error_code: null, text: null, stdout: null, stderr: null}
   $lines
   | group-by id --to-table
   | each {|call|
@@ -72,6 +75,8 @@ export def nux-log [
         code: $start.code
         error_code: $end.error_code
         text: $end.text
+        stdout: $end.stdout?
+        stderr: $end.stderr?
         session: $start.session?
         session_named: $start.session_named?
         conversation: $start.conversation

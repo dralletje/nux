@@ -162,7 +162,7 @@ impl Nu {
             Raw::Compile(e) => *e,
             Raw::Shell(e) => *e,
         };
-        let hints = assist::error_hints(&raw, sources, &self.engine);
+        let hints = assist::error_hints(&raw, sources);
         let text = format::join(&[&format::format_error(error, sources), &hints]);
         let record = format::error_record(error, sources, &text);
         Failure { code: format::error_code(error), record, text }
@@ -394,9 +394,19 @@ impl Nu {
     /// `nux help <command>`: Nushell's help for one command.
     pub fn help(&mut self, words: &[String]) -> Reply {
         let source = format!("help {}", words.iter().map(|w| nu_raw_string(w)).collect::<Vec<_>>().join(" "));
-        match self.run_source("nux-help", &source).and_then(|data| {
+        let mut result = self.run_source("nux-help", &source).and_then(|data| {
             data.into_value(Span::unknown()).map_err(|e| self.shell_failure(&e))
-        }) {
+        });
+        // A command of a module that is loaded only with `use` (`cookie-jar http`): with it.
+        if result.is_err()
+            && let Some(module) = words.first().filter(|w| w.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'))
+            && let Ok(value) = self
+                .run_source("nux-help", &format!("use nux/{module}\n{source}"))
+                .and_then(|data| data.into_value(Span::unknown()).map_err(|e| self.shell_failure(&e)))
+        {
+            result = Ok(value);
+        }
+        match result {
             Ok(Value::String { val, .. }) => Reply::ok(val.trim().to_string()),
             Ok(other) => Reply::ok(other.to_expanded_string("\n", &self.engine.get_config())),
             Err(failure) => Reply::failed(

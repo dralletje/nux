@@ -2,6 +2,7 @@
 
 mod args;
 mod assist;
+mod capture;
 mod children;
 mod commands;
 mod engine;
@@ -38,20 +39,29 @@ fn finish(reply: Reply) -> ! {
     while STOPPING.load(Ordering::Relaxed) {
         std::thread::park();
     }
-    usage_log::end(reply.ok, reply.outcome, reply.error_code.as_deref(), &reply.text);
-    let mut out = std::io::stdout().lock();
-    if !reply.text.is_empty() {
-        let _ = writeln!(out, "{}", reply.text);
+    {
+        let mut out = std::io::stdout().lock();
+        if !reply.text.is_empty() {
+            let _ = writeln!(out, "{}", reply.text);
+        }
+        let _ = out.flush();
     }
-    let _ = out.flush();
-    std::process::exit(reply.exit_code)
+    exit_logged(reply.ok, reply.outcome, reply.error_code.as_deref(), &reply.text, reply.exit_code)
 }
 
 fn fail(outcome: Outcome, message: impl Into<String>) -> ! {
     let message = message.into();
-    usage_log::end(false, outcome, None, &message);
     eprintln!("{message}");
-    std::process::exit(1)
+    exit_logged(false, outcome, None, &message, 1)
+}
+
+/// Record the end of the call, with all it printed (`capture`), and exit once nothing writes
+/// to the caller any more.
+fn exit_logged(ok: bool, outcome: Outcome, error_code: Option<&str>, text: &str, status: i32) -> ! {
+    capture::stop();
+    usage_log::end(ok, outcome, error_code, text);
+    capture::drain();
+    std::process::exit(status)
 }
 
 fn read_stdin() -> String {
@@ -89,6 +99,7 @@ fn record_signals(interrupt: Arc<AtomicBool>) {
 fn main() {
     // First, while nux has one thread (it removes environment variables).
     let try_nu_child = commands::try_nu::take_child_settings();
+    capture::start();
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let cwd = std::env::current_dir().unwrap_or_else(|_| "/".into());
     let cwd_text = cwd.to_string_lossy().into_owned();
@@ -190,11 +201,10 @@ fn run_as_try_nu_child(nu: &mut Nu, code: &str, child: commands::try_nu::ChildSe
     let failed = !matches!(result.as_record().ok().and_then(|r| r.get("error")), Some(nu_protocol::Value::Nothing { .. }));
     let text = nu.to_nuon(&result);
     let written = std::fs::write(&result_file, &text);
-    usage_log::end(!failed, if failed { Outcome::Error } else { Outcome::Ok }, None, &text);
-    let _ = std::io::stdout().flush();
+    let outcome = if failed { Outcome::Error } else { Outcome::Ok };
     if let Err(error) = written {
         eprintln!("nux: could not write the result of try-nu to {}: {error}", result_file.display());
-        std::process::exit(2);
+        exit_logged(false, outcome, None, &text, 2);
     }
-    std::process::exit(if failed { 1 } else { 0 })
+    exit_logged(!failed, outcome, None, &text, if failed { 1 } else { 0 })
 }

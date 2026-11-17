@@ -15,18 +15,21 @@ mod exit;
 mod flags;
 mod glob;
 mod interpolation;
+mod markdown;
 mod preview;
 mod shell;
+mod strings;
 
 use miette::Diagnostic;
-use nu_protocol::{CompileError, ParseError, ShellError, engine::EngineState};
+use nu_protocol::{CompileError, ParseError, ShellError};
 
 use crate::format::{CODE_FILE, Sources};
 
 pub use preview::{large_text, large_value};
 
 /// The helpers that give hints for errors, asked in this order.
-const ERROR_HELPERS: &[fn(&ErrorContext) -> Option<String>] = &[flags::hint, shell::hint, glob::hint, interpolation::hint, exit::hint];
+const ERROR_HELPERS: &[fn(&ErrorContext) -> Option<String>] =
+    &[flags::hint, shell::hint, strings::hint, glob::hint, markdown::hint, interpolation::hint, exit::hint];
 
 /// The error as Nushell made it, for helpers that need its fields.
 pub enum Raw<'a> {
@@ -60,12 +63,14 @@ pub struct ErrorContext<'a> {
     pub source: Option<String>,
     /// Where in `source` each of the error's labels points (byte positions), in order.
     pub places: Vec<usize>,
-    /// For looking up commands and their signatures.
-    pub engine: &'a EngineState,
+    /// For looking up commands and their signatures, as the code sees them: also those a
+    /// `use` earlier in the same code brought in (for a parse error, the engine does not have
+    /// them yet; the parse's working set does).
+    pub sources: &'a dyn Sources,
 }
 
 /// Hints for an error, as lines to print under it (empty when no helper has one).
-pub fn error_hints(raw: &Raw, sources: &dyn Sources, engine: &EngineState) -> String {
+pub fn error_hints(raw: &Raw, sources: &dyn Sources) -> String {
     let error = raw.diagnostic();
     let label = error.labels().and_then(|mut labels| labels.next());
     let (near, line) = match label.as_ref().and_then(|label| sources.file_of(label.offset()).map(|file| (label, file))) {
@@ -98,7 +103,7 @@ pub fn error_hints(raw: &Raw, sources: &dyn Sources, engine: &EngineState) -> St
         line,
         source,
         places,
-        engine,
+        sources,
     };
     ERROR_HELPERS
         .iter()

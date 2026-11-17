@@ -58,35 +58,9 @@ def test-results []: any -> table<name: string, status: string, duration: oneof<
   }
 }
 
-# What a parser is given, as {text, stderr, exit_code}: the record of `complete` (the usual
-# way, see the note at the parsers), or just the text, or its lines.
-def test-output []: any -> record {
-  let input = $in
-  let kind = ($input | describe)
-  if $kind =~ '^record' and "stdout" in $input {
-    {text: ($input.stdout | into string), stderr: ($input.stderr? | default "" | into string), exit_code: ($input.exit_code? | default null)}
-  } else if $kind =~ '^list' {
-    {text: ($input | str join "\n"), stderr: "", exit_code: null}
-  } else {
-    {text: ($input | into string), stderr: "", exit_code: null}
-  }
-}
-
-# The input is not what this parser reads: fail, showing the start of it (a build error?).
-def not-test-output [parser: string, expected: string, hint: string]: record -> any {
-  let source = $in
-  let start = ($source.text | str trim | lines | first 15 | str join "\n")
-  let errors = ($source.stderr | str trim | lines | last 15 | str join "\n")
-  error make {
-    msg: $"($parser): this is not ($expected)"
-    help: ([
-      $hint
-      (if $source.exit_code != null { $"The command exited with code ($source.exit_code)." } else { "" })
-      (if $start != "" { $"Its output starts with:\n($start)" } else { "It printed nothing." })
-      (if $errors != "" { $"Its error output ends with:\n($errors)" } else { "" })
-    ] | where $it != "" | str join "\n")
-  }
-}
+# What a parser is given, and how it fails on input that is not its format: shared with
+# `from tsc` (typescript.nu).
+use nux/util [command-output not-the-format]
 
 # "file:///a/b.test.js:4:1" or "/a/b.test.js:4:1" -> {file, line}
 def parse-location []: any -> record {
@@ -136,7 +110,7 @@ def parse-location []: any -> record {
   | select name duration
 }
 export def "from node-26-test" []: any -> table {
-  let source = ($in | test-output)
+  let source = ($in | command-output)
   let text = $source.text
   let lines = ($text | lines)
   let result = '^(?<indent>\s*)(?<mark>[✔✖﹣⚠]) (?<name>.*) \((?<ms>[\d.]+)ms\)(?: # (?<note>.*))?$'
@@ -208,7 +182,7 @@ export def "from node-26-test" []: any -> table {
   }
   if ($rows | is-empty) and $summary_at == null {
     let hint = if $text =~ '(?m)^TAP version' { "It is TAP: use `from tap`." } else { "Did the tests run at all? A build step before them may have failed." }
-    $source | not-test-output "from node-26-test" "the output of Node 26's test runner (lines like `✔ name (1.2ms)`)" $hint
+    $source | not-the-format "from node-26-test" "the output of Node 26's test runner (lines like `✔ name (1.2ms)`)" $hint
   }
   $rows | test-results
 }
@@ -260,11 +234,11 @@ export def "from node-26-test" []: any -> table {
     }
 }
 export def "from tap" []: any -> table {
-  let source = ($in | test-output)
+  let source = ($in | command-output)
   let text = $source.text
   if $text !~ '(?m)^\s*(TAP version \d+|1\.\.\d+|(not )?ok\b)' {
     let hint = if $text =~ '(?m)^\s*[✔✖] .* \([\d.]+ms\)' { "It is what Node 20 and newer print by default. Ask for TAP: --test-reporter=tap, or for a package script NODE_OPTIONS (see: help from tap). Or parse this format: from node-26-test." } else { "Did the tests run at all? A build step before them may have failed." }
-    $source | not-test-output "from tap" "TAP (lines like `ok 1 - name`)" $hint
+    $source | not-the-format "from tap" "TAP (lines like `ok 1 - name`)" $hint
   }
   let lines = ($text | lines)
   let count = ($lines | length)

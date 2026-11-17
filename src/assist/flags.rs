@@ -8,13 +8,19 @@ use super::{ErrorContext, Raw};
 
 pub fn hint(context: &ErrorContext) -> Option<String> {
     let Raw::Parse(ParseError::UnknownFlag(command, flag, _, _)) = context.raw else { return None };
-    let (command, decl) = full_name(context, command)
+    let (command, signature) = full_name(context, command)
         .into_iter()
         .chain(std::iter::once(command.clone()))
-        .find_map(|name| context.engine.find_decl(name.as_bytes(), &[]).map(|decl| (name, decl)))?;
+        .find_map(|name| context.sources.signature_of(&name).map(|signature| (name, signature)))?;
     let command = &command;
-    let signature = context.engine.get_decl(decl).signature();
     let flags: Vec<_> = signature.named.iter().filter(|f| f.long != "help").collect();
+    // The command found has the flag that was refused, so it is not the command that refused
+    // it (`cookie-jar http --full` once found Nushell's `http`, and said "Did you mean
+    // --full?"). No hint is better than a wrong one.
+    let given = flag.trim_start_matches('-');
+    if flags.iter().any(|f| f.long == given || (given.chars().count() == 1 && f.short.is_some_and(|s| given.starts_with(s)))) {
+        return None;
+    }
     // nux's `git status` is not git's: the flag may be meant for the program itself.
     let program = command.split(' ').next().filter(|first| *first != command && on_path(first));
     let instead = program
@@ -26,7 +32,6 @@ pub fn hint(context: &ErrorContext) -> Option<String> {
 
     // Only for a long flag: a single letter is usually another tool's (`-A` of grep is not
     // `-a` here), and a guess from it would mislead.
-    let given = flag.trim_start_matches('-');
     let names: Vec<String> = flags.iter().map(|f| f.long.clone()).collect();
     let suggestion = if given.chars().count() > 1 { did_you_mean(&names, given) } else { None };
 
