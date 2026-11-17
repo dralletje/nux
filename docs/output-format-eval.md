@@ -1,6 +1,45 @@
 # Plan: which format should nux print for agents? (NUON vs TOON vs our own)
 
-Status: plan, nothing run yet. Follows from item 3.3 of `docs/feedback-2026-11.md`.
+Status: plan, nothing run yet (no API key yet). Follows from item 3.3 of
+`docs/feedback-2026-11.md`. A first guess to use until then: "v0" below.
+
+## The discussion so far (2026-11-17)
+
+- **Why agents avoided NUON.** Not because they could not read data in it. In the review
+  window (1,099 calls) 445 contain `str join "\n"`: 276 of them on lines of a file or of a
+  command's output, 212 on search results, 193 formatting rows into lines by hand. Most of
+  what agents read is text (code, search hits, git output), and NUON shows a list of text
+  lines as one line of quoted, escaped strings: code with `\` and `"` gets a second layer
+  of escaping, which is where copy mistakes come from. The rest: only the last value was
+  shown (261 calls with several `print`s; fixed: every value is shown now), familiar forms
+  (grep's `file:line: text`, Markdown tables: 77 calls `| to md`; `to grep` now exists),
+  and keeping output under 10 KiB (50 calls cut lines with `str substring`).
+- **What the studies say** (Improving Agents, see "What others found"): Markdown-KV best on a
+  large flat table, YAML best on deep nesting, Markdown tables and TOON cheap. All with small
+  models, no Claude, data inflated until accuracy fell to ~50%, lookups only. For values of
+  at most 10 KiB read by Opus or Sonnet the differences may be small; our test decides.
+- **Aligned columns** probably do not help a model: it reads tokens, not a grid, and finds a
+  cell's column by counting separators back to the header; padding adds tokens without
+  making that clearer, an explicit `|` does. Tested as D against E.
+- **Markdown-KV is cheaper than JSON** (52k against 66k tokens there): both repeat every
+  key, JSON adds quotes, braces and commas. But it is about twice a Markdown table (25k).
+  NUON tables write their header once, like CSV; NUON was not in those tests.
+- **Header repeated every N rows**: a middle way between a table (header far from most
+  rows) and key-per-value (twice the tokens): about 5% more for every 20 rows. Note: NUON
+  now prints a whole table on ONE line; one row per line is already a change.
+- **A format per value is possible in nux**: everything printed goes through `value_text`
+  (src/engine.rs), which has the whole value with its types before it becomes text, and
+  already walks all of it (to NUON, to measure against 10 KiB). Measuring rows, depth and
+  newlines first costs microseconds. The price is that similar values can come out in
+  different forms; each would say which.
+- **Multi-line text**: in Markdown-KV, a multi-line value goes in a fenced block, its fence
+  longer than any run of backticks inside (the same rule as nux's raw strings), so nothing
+  is escaped. A list of texts: one per line when none has a newline; otherwise each item as
+  a block. Deciding needs a look at every item first, which is free here (see the previous
+  point); a form that decides per item would not even need that.
+- **grep's form** became `to grep` (rows of search and ast-find, after filtering), not a
+  flag on search. It is close to `| to md` in what it says, but survives `|` in code, marks
+  matches against lines around them, and is a form models know well.
 
 ## The question
 
@@ -61,6 +100,8 @@ key-per-value for big tables, YAML for deep nesting, a plain table when tokens m
 | F | Markdown tables (`to md`) | what agents reach for themselves |
 | G | Markdown-KV: `## <n>` per row, then `key: value` lines; nesting as deeper headings | best on large flat tables above |
 | H | YAML | best on deep nesting above |
+| I | a table, one row per line, its header repeated every 20 rows | between a table and Markdown-KV in tokens |
+| V0 | the first guess below | what nux would use until the test is done |
 | X | **by shape**: per value, the format that wins for its shape (see "Choosing per value") | the question below |
 
 ### Our own format (D and E), a first spec to test
@@ -148,6 +189,72 @@ accuracy per 1,000 tokens. Then:
   and less for us to maintain;
 - per shape as well as overall: if the winner differs by shape, the rule of "Choosing per
   value" (X) is tested against the best single format.
+
+## v0: a first guess, before testing
+
+What nux could print until the test says otherwise. Guided by what we know: most of what
+agents read is text; values are at most 10 KiB; the readers are strong models; what they
+copy must come out exactly. Everything a value is made of is known before it is printed.
+
+**Text in a value** (a string inside a list, record or table):
+
+- as it is, without quotes, when it is one line and cannot be read as something else;
+- in `"..."` (JSON's escapes) when it is empty, has spaces at its start or end, or reads
+  as a number, `true`, `false` or `null`, or (in a table cell) holds a `|`;
+- on lines of its own, in a fenced block, when it has a newline (fence: one backtick more
+  than its longest run of backticks, at least three).
+
+**Other scalars** as Nushell writes them for people: `1min 28sec`, `2.3 kB`,
+`2026-11-17 09:12:03 +00:00`. `null` as `null`. (The exact value stays one `kept` away.)
+
+**By shape**, top level:
+
+| Value | Printed as |
+|---|---|
+| text | as it is (as now) |
+| list of numbers, bools and the like | NUON on one line: `[1, 2, 3]` |
+| list of texts | `- item` per line. If an item has a newline: `## 0`, `## 1`, ... each with its item in a fenced block |
+| record | `key: value` per line (Markdown-KV without a heading). A nested value: inline NUON when that is at most 80 characters, else under `key:`, indented two spaces, by these same rules |
+| table, simple | a Markdown table, header repeated every 20 rows |
+| table, not simple | Markdown-KV: `## 0`, `## 1`, ... per row, each a record as above |
+
+A table is **simple** when it has at most 8 columns and every cell is a scalar that fits on
+one line in at most 60 characters (a `|` in a cell is quoted, so still fine). Anything else
+(wide, nested cells, multi-line or long cells) is not. Headings count from 0, as `get 0`
+does.
+
+**Unchanged**: text as the whole value; the 10 KiB limit and `kept` (which keeps NUON, so
+types come back); the preview of a large value (it uses these rules for its first rows);
+`| to nuon`, `| to json` and the like when asked for. `NUX_FORMAT=nuon` gives the old output,
+for comparing and as a way back.
+
+**Examples**:
+
+````
+── line 1: git status
+| path | staged | unstaged |
+|---|---|---|
+| src/engine.rs | null | modified |
+| docs/new.md | null | untracked |
+── line 2: open --raw src/lib.rs | lines | first 3
+- //! nux: Nushell for agents.
+- ""
+- use std::io;
+── line 3: git log -n 1 | first
+hash: 9caf6b77f1ba9dacea9594b81e90ec30f8c19b86
+date: 2026-11-17 14:02:11 +00:00
+subject: Fixes from a day of agent use
+message:
+```
+Fixes from a day of agent use
+
+- The usage log has all the caller saw …
+```
+````
+
+Open in v0: whether `- ` before each line of a list is worth its token (it marks a list,
+and makes an empty item visible); whether 20 rows and 8 columns are the right numbers.
+The test answers both: V0 is one of its formats.
 
 ## Choosing per value
 
