@@ -34,9 +34,12 @@ Status: plan, nothing run yet (no API key yet). Follows from item 3.3 of
   different forms; each would say which.
 - **Multi-line text**: in Markdown-KV, a multi-line value goes in a fenced block, its fence
   longer than any run of backticks inside (the same rule as nux's raw strings), so nothing
-  is escaped. A list of texts: one per line when none has a newline; otherwise each item as
-  a block. Deciding needs a look at every item first, which is free here (see the previous
-  point); a form that decides per item would not even need that.
+  is escaped. A list of texts: one item per line, always; an item with a newline is quoted
+  with JSON escapes (`"two\nlines"`), so that an unquoted item is always literal (code has
+  `\n` in it as text). Each item is decided on its own, no look at the others. (Looking at
+  all of a value first would have been free anyway: it is whole in memory before printing.)
+- **Everything else stays NUON**: v0 has explicit forms only for text, lists of text,
+  records and tables; anything nested inside those, and every other shape, is NUON.
 - **grep's form** became `to grep` (rows of search and ast-find, after filtering), not a
   flag on search. It is close to `| to md` in what it says, but survives `|` in code, marks
   matches against lines around them, and is a form models know well.
@@ -196,31 +199,40 @@ What nux could print until the test says otherwise. Guided by what we know: most
 agents read is text; values are at most 10 KiB; the readers are strong models; what they
 copy must come out exactly. Everything a value is made of is known before it is printed.
 
-**Text in a value** (a string inside a list, record or table):
+The principle: explicit forms only where the review showed agents fighting the output (text,
+lists of text, tables, records); **NUON for everything else**, and for anything nested
+inside those. NUON is exact and known; v0 stays small.
+
+**Text in a value** (a string in a list of texts, a record, or a table):
 
 - as it is, without quotes, when it is one line and cannot be read as something else;
-- in `"..."` (JSON's escapes) when it is empty, has spaces at its start or end, or reads
-  as a number, `true`, `false` or `null`, or (in a table cell) holds a `|`;
-- on lines of its own, in a fenced block, when it has a newline (fence: one backtick more
-  than its longest run of backticks, at least three).
+- otherwise in `"..."` with JSON's escapes: when it is empty, has spaces at its start or
+  end, reads as a number, `true`, `false` or `null`, holds a `|` (in a table cell), or has
+  a newline (`"line one\nline two"`). So a value without quotes is always exactly what it
+  shows (a `\n` in it is a backslash and an n, as in code), and one in quotes is JSON;
+- one exception: in a record, a value with newlines goes on lines of its own, in a fenced
+  block (fence: one backtick more than its longest run of backticks, at least three). The
+  key above it says what it is; commit messages and errors stay readable.
 
-**Other scalars** as Nushell writes them for people: `1min 28sec`, `2.3 kB`,
-`2026-11-17 09:12:03 +00:00`. `null` as `null`. (The exact value stays one `kept` away.)
+Every item stays on one line in a list or a table: nothing has to be known about the other
+items to print one.
+
+**Other scalars** (numbers, bools, null, durations, sizes, dates): as NUON writes them.
 
 **By shape**, top level:
 
 | Value | Printed as |
 |---|---|
 | text | as it is (as now) |
-| list of numbers, bools and the like | NUON on one line: `[1, 2, 3]` |
-| list of texts | `- item` per line. If an item has a newline: `## 0`, `## 1`, ... each with its item in a fenced block |
-| record | `key: value` per line (Markdown-KV without a heading). A nested value: inline NUON when that is at most 80 characters, else under `key:`, indented two spaces, by these same rules |
+| list of texts | `- item` per line, each item by the rules for text above |
+| record | `key: value` per line (Markdown-KV without a heading); a value that is a list, record or table: NUON, inline |
 | table, simple | a Markdown table, header repeated every 20 rows |
 | table, not simple | Markdown-KV: `## 0`, `## 1`, ... per row, each a record as above |
+| anything else (a list of numbers, a mixed list, a list of lists, ...) | NUON, as now |
 
-A table is **simple** when it has at most 8 columns and every cell is a scalar that fits on
-one line in at most 60 characters (a `|` in a cell is quoted, so still fine). Anything else
-(wide, nested cells, multi-line or long cells) is not. Headings count from 0, as `get 0`
+A table is **simple** when it has at most 8 columns and every cell is a scalar whose text
+fits in 60 characters (quoted if needed, so a `|` or a newline is fine). Anything else
+(wide, a cell with a list or record, long cells) is not. Headings count from 0, as `get 0`
 does.
 
 **Unchanged**: text as the whole value; the 10 KiB limit and `kept` (which keeps NUON, so
@@ -236,14 +248,19 @@ for comparing and as a way back.
 |---|---|---|
 | src/engine.rs | null | modified |
 | docs/new.md | null | untracked |
-── line 2: open --raw src/lib.rs | lines | first 3
+── line 2: open --raw src/lib.rs | lines | first 4
 - //! nux: Nushell for agents.
 - ""
+- let s = "a\nb";
 - use std::io;
-── line 3: git log -n 1 | first
+── line 3: [one "two\nlines"]
+- one
+- "two\nlines"
+── line 4: git log -n 1 --files | first
 hash: 9caf6b77f1ba9dacea9594b81e90ec30f8c19b86
-date: 2026-11-17 14:02:11 +00:00
+date: 2026-11-17T14:02:11+00:00
 subject: Fixes from a day of agent use
+files: [src/main.rs, src/capture.rs]
 message:
 ```
 Fixes from a day of agent use
