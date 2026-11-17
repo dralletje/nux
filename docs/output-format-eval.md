@@ -217,7 +217,20 @@ inside those. NUON is exact and known; v0 stays small.
 Every item stays on one line in a list or a table: nothing has to be known about the other
 items to print one.
 
-**Other scalars** (numbers, bools, null, durations, sizes, dates): as NUON writes them.
+**Other scalars**, in a list of texts, a record or a table cell:
+
+| Type | NUON now | v0 |
+|---|---|---|
+| duration | `88471299830ns` | its two largest units, `~` in front when smaller ones were left out: `~1min 28sec`, `1sec 500ms`, `3day` |
+| file size | `4512345b` | the largest decimal unit it is at least 1 of, at most 3 decimals, `~` in front when rounded: `2.311kB`, `~4.512MB`, `500b` |
+| range | `0..<10`, `1..3..9` | as NUON: already readable and exact |
+| date | `2026-11-17T14:02:11+00:00` | as NUON: exact, sorts, keeps the time zone (Nushell's `Tue Nov 17 14:02:11 2026` drops it) |
+| number, bool, null | `12`, `true`, `null` | as NUON |
+
+Durations and sizes are for reading, not for pasting back as code: `~` says when a value
+was rounded, and even an exact `4.512345MB` would not do, because Nushell reads it through a
+float (as 4512344b). The exact value is `kept`, or `| to nuon`. Inside nested NUON these
+stay as NUON writes them (v0 leaves nested values alone).
 
 **By shape**, top level:
 
