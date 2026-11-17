@@ -196,7 +196,8 @@ review's counts are the baseline. Only then change the default and the manual.
 
 - The API key, and whether log contents may be sent to the API at all (they are agents'
   views of our repositories).
-- Whether `--text` style output (`search --text`) should follow the same rules.
+- Whether `to grep` (rows of search and ast-find as grep prints them) should be what nux
+  prints for such rows by default, without being asked.
 - A value that is printed in the new format can no longer be pasted back as Nushell code.
   Agents seldom do that (they use `kept`), but the log can confirm how often a reply's
   NUON shows up in a later call's code.

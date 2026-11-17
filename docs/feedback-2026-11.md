@@ -31,7 +31,8 @@ sections. This file keeps what became of each item, so that it can be picked up 
 - **1.3 ast-apply after ast-apply.** The "changed since the search" error says to apply both
   searches' rows at once, or search again after the first apply.
 - **2.1, 2.7, 3.4 `search`.** New flags where nux had no way: --before-context (-B),
-  --after-context (-A), --only-matching (-o), --text (grep's form, `--` between places).
+  --after-context (-A), --only-matching (-o). To read rows as grep prints them, `to grep`
+  (search and ast-find rows; after filtering, which a flag on search would not allow).
   For grep flags that do have a way here (-n, -r, -c, -e, -w, -E, -v, -h), the unknown-flag
   hint says what it is. A path with `*` is a glob. The manual asks for long flag names.
 - **3.2 Every value is shown.** Each top-level statement's value, under `── line N:

@@ -100,8 +100,11 @@ COMMANDS THAT GIVE TABLES   (examples for each: nux help <command>)
       search 'pattern' src --glob '*.ts'    file contents (ripgrep): file, line, text. Line
                                             numbers always, folders always searched through.
                                             --context 3 (--before-context, --after-context),
-                                            --only-matching, --files (counts per file);
-                                            --text to read it as grep prints it
+                                            --only-matching, --files (counts per file)
+      search 'pattern' src --context 2 | where file !~ test | to grep
+                                            rows of search or ast-find, to read: one text,
+                                            as grep prints it (`file:line:text`, lines
+                                            around a match `file-line-text`, `--` between)
       ast-find --lang ts 'console.log($$$A)' src
                                             code by its structure (ast-grep): file, line, text,
                                             vars. With --rewrite '...' each row also gets its

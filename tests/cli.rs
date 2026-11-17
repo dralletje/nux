@@ -777,10 +777,19 @@ fn search_has_grep_s_ways_too() {
     assert_eq!(run("search 'find me' src/a.ts --before-context 1 | where not hit | get line"), "[1,5]\n");
     assert_eq!(run("search '\\d+' src/a.ts --only-matching | get text"), "[\"12\",\"34\"]\n");
     assert_eq!(
-        run("search 'find me' src/a.ts --after-context 1 --text"),
+        run("search 'find me' src/a.ts --after-context 1 | to grep"),
         "src/a.ts:2:find me 12\nsrc/a.ts-3-two\n--\nsrc/a.ts:6:find me 34\nsrc/a.ts-7-five\n"
     );
-    assert_eq!(run("search 'find me' src/a.ts --text"), "src/a.ts:2:find me 12\nsrc/a.ts:6:find me 34\n");
+    assert_eq!(run("search 'find me' src/a.ts | to grep"), "src/a.ts:2:find me 12\nsrc/a.ts:6:find me 34\n");
+    // Filtered first, then read: the rows left, with `--` where they no longer follow on.
+    assert_eq!(
+        run("search 'find me' src/a.ts --context 1 | where line != 6 | to grep"),
+        "src/a.ts-1-one\nsrc/a.ts:2:find me 12\nsrc/a.ts-3-two\n--\nsrc/a.ts-5-four\n--\nsrc/a.ts-7-five\n"
+    );
+    // A text over several lines (an ast-find match): one line each, numbered on.
+    assert_eq!(run("[[file line text]; [a.ts 3 \"f(\\n  x)\"]] | to grep"), "a.ts:3:f(\na.ts:4:  x)\n");
+    let wrong = nux_in(&dir, "ls | to grep");
+    assert!(wrong.stdout.contains("to grep needs the columns file, line and text"), "{}", wrong.stdout);
     // A glob as a path: the files it matches.
     assert_eq!(run("search 'find me' src/*.md | get file"), "[\"src/b.md\"]\n");
     let missing = nux_in(&dir, "search x src/*.rs");

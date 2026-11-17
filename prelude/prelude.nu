@@ -129,9 +129,9 @@ export def js [
 # matches is an empty list, not an error.
 #
 # With lines around the matches (--context, --before-context, --after-context), the rows
-# also have `hit`: true for a matching line, false for one around it. --text gives it all as
-# grep would print it, `file:line:text` for a match, `file-line-text` around one, `--`
-# between places. A path with `*` in it is a glob (`search foo src/*.ts`).
+# also have `hit`: true for a matching line, false for one around it. To read the rows as
+# grep prints them, after any filtering: `| to grep`. A path with `*` in it is a glob
+# (`search foo src/*.ts`).
 #
 # For grep's other flags there is a way here already: -c is --files; -e a b is one pattern
 # 'a|b'; -w is '\bword\b'; -v is `where` on the lines (open --raw f | lines | where $it !~ x).
@@ -140,7 +140,7 @@ export def js [
 @example "Plain text in some files only" { search --literal 'foo(' src --glob '*.ts' }
 @example "Which files mention it, and how often" { search TODO --files | sort-by matches --reverse }
 @example "With two lines around each match (the column `hit` is true for the matching lines)" { search panic --context 2 }
-@example "To read, as grep prints it" { search 'fn main' src --after-context 3 --text }
+@example "To read, as grep prints it" { search 'fn main' src --after-context 3 | where file !~ test | to grep }
 @example "Only what matched, not the whole line" { search 'TS\d{4}' build.log --only-matching | get text | uniq --count }
 export def search [
   pattern: string              # Regular expression (Rust syntax); plain text with --literal
@@ -153,9 +153,8 @@ export def search [
   --after-context (-A): int    # Also give this many lines after each match
   --only-matching (-o)         # One row per match, `text` only what matched (not with lines around)
   --files (-l)                 # One row per file instead: file, matches (grep's -c and -l)
-  --text                       # One text, as grep prints it, instead of a table
   --all (-a)                   # Also search hidden files and files that .gitignore excludes
-]: nothing -> any {
+]: nothing -> table {
   if (which rg | is-empty) {
     error make {msg: "search needs ripgrep (`rg`), which is not installed"}
   }
@@ -215,22 +214,6 @@ export def search [
       }
     } | flatten
   )
-  if $text {
-    # As grep: `:` after a match's line number, `-` after one around it, `--` between places.
-    mut lines = []
-    mut last_file = ""
-    mut last_line = -1
-    for row in $rows {
-      if ($lines | is-not-empty) and $around and ($last_file != $row.file or $last_line + 1 != $row.line) {
-        $lines ++= ["--"]
-      }
-      let mark = if $row.hit { ":" } else { "-" }
-      $lines ++= [$"($row.file)($mark)($row.line)($mark)($row.text)"]
-      $last_file = $row.file
-      $last_line = $row.line
-    }
-    return ($lines | str join "\n")
-  }
   if $files {
     $rows | where hit | group-by file --to-table | each {|group| {file: $group.file, matches: ($group.items | length)} }
   } else if not $around {
@@ -238,6 +221,49 @@ export def search [
   } else {
     $rows
   }
+}
+
+# Places in files as grep prints them: one text to read, from rows with file, line and text
+# (what `search` and `ast-find` give).
+#
+# `file:line:text` for each line. With a column `hit` (from search with --context and the
+# like), a line around a match gets `-` instead: `file-line-text`, and `--` stands between
+# places that do not follow each other. A text over several lines (an ast-find match) gives
+# one line each, numbered on from its first.
+#
+# For git's changes, read the diff itself: `git diff | git hunks`.
+@search-terms grep "read results" "search results as text" lines
+@example "Matches with a line around them, after filtering" { search 'TODO' src --context 1 | where file !~ test | to grep }
+@example "Where a pattern is used" { ast-find --lang ts 'useEffect($$$A)' src | to grep }
+export def "to grep" []: table -> string {
+  let rows = $in
+  if ($rows | is-empty) { return "" }
+  let missing = ([file line text] | where $it not-in ($rows | columns))
+  if ($missing | is-not-empty) {
+    error make {
+      msg: $"to grep needs the columns file, line and text; missing: ($missing | str join ', ')"
+      help: "Rows from search or ast-find have them. For git's changes, the diff itself: git diff | git hunks."
+    }
+  }
+  let around = ("hit" in ($rows | columns))
+  mut lines = []
+  mut last_file = ""
+  mut last_line = -1
+  for row in $rows {
+    let hit = if $around { $row.hit } else { true }
+    let mark = if $hit { ":" } else { "-" }
+    if ($lines | is-not-empty) and $around and ($last_file != $row.file or $last_line + 1 != $row.line) {
+      $lines ++= ["--"]
+    }
+    mut number = $row.line
+    for text in ($row.text | into string | lines) {
+      $lines ++= [$"($row.file)($mark)($number)($mark)($text)"]
+      $number += 1
+    }
+    $last_file = $row.file
+    $last_line = $number - 1
+  }
+  $lines | str join "\n"
 }
 
 # The old name of `slice`, which agents still write: it works, and says so on stderr.
