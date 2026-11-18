@@ -4,7 +4,7 @@
 //! value stays one `kept` away (kept values are NUON). So this form is made for reading, with
 //! its own forms only where agents were seen fighting the output, and NUON for the rest:
 //!
-//! - a list of texts: `- item` per line;
+//! - a list of texts: `N items`, then one item per line;
 //! - a record: `key: value` per line;
 //! - a table: a Markdown table when it is simple (header repeated every 20 rows), otherwise
 //!   `## 0`, `## 1`, ... per row, each row as a record;
@@ -42,11 +42,16 @@ pub fn nuon(engine: &EngineState, value: &Value) -> String {
 pub fn readable(engine: &EngineState, value: &Value) -> String {
     let r = Render { engine };
     match value {
-        Value::List { vals, .. } if !vals.is_empty() && vals.iter().all(|v| matches!(v, Value::String { .. })) => vals
-            .iter()
-            .map(|v| format!("- {}", r.text(v.as_str().unwrap_or_default(), Place::Item)))
-            .collect::<Vec<_>>()
-            .join("\n"),
+        // A list of texts: how many, then one per line, as it is wherever that is unambiguous.
+        // (The count says it is a list, and how long: counting lines was the most common miss
+        // in the format runs. Lines as they are is what agents made with `str join "\n"`.)
+        Value::List { vals, .. } if !vals.is_empty() && vals.iter().all(|v| matches!(v, Value::String { .. })) => {
+            let count = if vals.len() == 1 { "1 item".to_string() } else { format!("{} items", vals.len()) };
+            std::iter::once(count)
+                .chain(vals.iter().map(|v| r.text(v.as_str().unwrap_or_default(), Place::Line)))
+                .collect::<Vec<_>>()
+                .join("\n")
+        }
         Value::List { vals, .. } if !vals.is_empty() && vals.iter().all(|v| matches!(v, Value::Record { .. })) => r.table(vals),
         Value::Record { val, .. } if !val.is_empty() => r.record(val.iter(), 0).join("\n"),
         _ => r.scalar_or_nuon(value),
@@ -56,7 +61,10 @@ pub fn readable(engine: &EngineState, value: &Value) -> String {
 /// Where a text stands: what it must not be mistaken for there.
 #[derive(Clone, Copy, PartialEq)]
 enum Place {
-    /// An item of a list of texts, or a value in a record.
+    /// A line of its own, in a list of texts: spaces at its start are plain to see there
+    /// (indented code stays as it is); only spaces at its end are not.
+    Line,
+    /// A value in a record (after `key: `) or an item of a nested list.
     Item,
     /// A cell of a Markdown table: a `|` would split it.
     Cell,
@@ -202,8 +210,10 @@ impl Render<'_> {
 
 /// Whether a text has to be quoted to be read for what it is.
 fn needs_quotes(text: &str, place: Place) -> bool {
+    let ends = if place == Place::Line { text.trim_end() } else { text.trim() };
     text.is_empty()
-        || text.trim() != text
+        || text.trim().is_empty()
+        || ends != text
         || text.contains('\n')
         || text.contains('\r')
         || text.starts_with('"')
@@ -306,5 +316,11 @@ mod tests {
         assert!(needs_quotes("two\nlines", Place::Item));
         assert!(needs_quotes("a | b", Place::Cell));
         assert!(!needs_quotes("a | b", Place::Item));
+        // A line of its own: indentation is plain to see, spaces at the end are not.
+        assert!(!needs_quotes("    return x;", Place::Line));
+        assert!(needs_quotes("trailing ", Place::Line));
+        assert!(needs_quotes("   ", Place::Line));
+        assert!(needs_quotes("", Place::Line));
+        assert!(needs_quotes("    return x;", Place::Item));
     }
 }

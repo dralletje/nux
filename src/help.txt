@@ -52,10 +52,11 @@ WRITE IT ON MANY LINES
                             one with lists or records in it: `12 rows`, then `## 0`, `## 1`,
                             ... per row (counting from 0, as `get 0` does)
         a record            `key: value` lines; text over several lines in a ``` block
-        a list of texts     `- item` per line
+        a list of texts     `12 items`, then one item per line
         text inside those   as it is, or in "..." with JSON escapes when it could be misread
                             (empty, spaces at an end, a number, true/false/null, a newline);
-                            so text without quotes is exactly what it says
+                            so text without quotes is exactly what it says, and every line
+                            of a list is one item
         durations, sizes    `~1min 28sec`, `~4.512MB` (`~`: rounded)
         anything else       NUON, Nushell's notation (`[1,2,3]`, `0..<10`, nested values)
       The exact value, with its types: `| to nuon`, or `kept` for a large one.

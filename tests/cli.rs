@@ -73,11 +73,13 @@ fn values_are_printed_for_reading() {
     };
     // A table: Markdown; a list of texts: `- item`, quoted only when it could be misread.
     assert_eq!(run("[[a b]; [1 x] [2 'y|z']]"), "| a | b |\n|---|---|\n| 1 | x |\n| 2 | \"y|z\" |\n");
-    // ("two\nlines" has a newline; 'let s = "a\nb";' a backslash and an n, as code does.)
+    // A list of texts: how many, then one per line. ("two\nlines" has a newline; 'let s =
+    // "a\nb";' a backslash and an n, as code does; spaces at the start stay as they are.)
     assert_eq!(
-        run("[one \"two\\nlines\" '12' '' 'let s = \"a\\nb\";']"),
-        "- one\n- \"two\\nlines\"\n- \"12\"\n- \"\"\n- let s = \"a\\nb\";\n"
+        run("[one \"two\\nlines\" '12' '' 'let s = \"a\\nb\";' '    indented' 'trailing ']"),
+        "7 items\none\n\"two\\nlines\"\n\"12\"\n\"\"\nlet s = \"a\\nb\";\n    indented\n\"trailing \"\n"
     );
+    assert_eq!(run("[only]"), "1 item\nonly\n");
     // A record: `key: value`; durations and sizes for reading; short nested values inline.
     assert_eq!(
         run("{took: 1500ms, size: 4512345b, at: 2026-11-17T14:02:11+00:00, files: [a b]}"),

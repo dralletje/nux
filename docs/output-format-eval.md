@@ -130,6 +130,49 @@ Three things to find out:
   text (code, file contents) where v0 differs most from NUON. A run on text-heavy values
   (lists of code lines, search rows) is the next one to do.
 
+## A run on lists of texts (2026-11-18, subagents)
+
+- Data: 16 lists of texts, 101 questions (`eval/output-format/generate-lists.nu`): windows of
+  40 to 80 lines of nux's own source (indentation, quotes, backslashes), the lines of three
+  `git show`s (blank lines, lines starting with `-` and `+`), 70 file paths, 45 commit
+  subjects, 12 whole commit messages (items over several lines), and 3 lists from the usage
+  log. Questions: count 29 (items; empty items; items over several lines), exact copy 26,
+  which item number 14, exists 28 (half near misses), lines of a multi-line item 4.
+- Formats: v0 with the list form proposed on 2026-11-18 (`N items`, then one item per line,
+  quoted only when it could be misread; spaces at the start not quoted), Markdown-KV
+  (`- item`, as it is), YAML, JSON, NUON. Opus and Haiku, 10 subagents.
+- Results, right of 101, exact (lenient scoring forgives spaces at the ends; it differs only
+  where noted):
+
+  | | v0 | Markdown-KV | YAML | NUON | JSON |
+  |---|---|---|---|---|---|
+  | Opus | 99 (101 lenient) | 100 | 98 | 101 | 101 |
+  | Haiku | 100 | 101 | 101 | 97 | 91 (92) |
+  | both | 199 | 201 | 199 | 198 | 192 |
+  | characters | **64,709** | 65,958 | 68,280 | 66,285 | 66,520 |
+
+- What went wrong:
+  - **Haiku with JSON** (10 misses) lost its place in long lists: counts one off (72 for
+    71, 80 for 81, 69 for 70), and copies of the item next to the one asked for. All in three
+    lists of 70 to 81 items. JSON and NUON put a whole list on one line, so finding item 59
+    means counting commas. Haiku with NUON: the same, once (a list from the log, 11 for 12).
+  - **Opus with v0**: two copies with too few spaces of indentation (8 for 12; 2 for 3) on
+    lines shown as they are. In JSON and NUON the spaces are inside quotes, and Opus copied
+    them exactly. Haiku with v0: one copy without the `+` that starts a diff line.
+  - Opus with YAML: one off by one in a diff (count, which number, the neighbouring item);
+    Opus with Markdown-KV: one count of empty items one short.
+- **Caveat that matters**: the agents read their file with the Read tool, which numbers every
+  line. A format with one item per line (v0, Markdown-KV, YAML) gets those numbers to count
+  and find items by; one on one line (JSON, NUON) does not. Real nux output arrives through
+  the Bash tool, without line numbers. Part of the line formats' lead may come from that.
+  The next run should give agents the text the way nux does: through a shell call
+  (`nux <<< 'open --raw <file>'`), not Read.
+- What it says, with that caveat: for lists of texts, one item per line is at least as good
+  as JSON and NUON for Opus, and better for Haiku on long lists; v0 is the smallest of all.
+  Spaces at the start of a line shown as it is can lose a few in an exact copy (Opus, twice),
+  which quotes would have kept; that is the price of reading code as code. edit-file's "only
+  whitespace differs" message catches such a copy when it is used as `old`.
+
 ## What others found
 
 Improving Agents (improvingagents.com) compared formats in three posts. What they found,
@@ -303,7 +346,7 @@ stay as NUON writes them (v0 leaves nested values alone).
 | Value | Printed as |
 |---|---|
 | text | as it is (as now) |
-| list of texts | `- item` per line, each item by the rules for text above |
+| list of texts | `N items`, then one item per line, each by the rules for text above, except that spaces at its start stay unquoted (since 2026-11-18; was `- item`) |
 | record | `key: value` per line (Markdown-KV without a heading); a value that is a list, record or table: NUON, inline |
 | table, simple | a Markdown table, header repeated every 20 rows |
 | table, not simple | Markdown-KV: `## 0`, `## 1`, ... per row, each a record as above |
