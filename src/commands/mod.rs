@@ -5,6 +5,7 @@
 
 pub mod kept;
 pub mod statement_value;
+pub mod to_readable;
 pub mod try_nu;
 
 use nu_protocol::engine::{EngineState, StateWorkingSet};
@@ -16,6 +17,7 @@ pub fn add(mut engine: EngineState) -> EngineState {
         working_set.add_decl(Box::new(kept::Kept));
         working_set.add_decl(Box::new(try_nu::TryNu));
         working_set.add_decl(Box::new(statement_value::StatementValue));
+        working_set.add_decl(Box::new(to_readable::ToReadable));
         working_set.render()
     };
     if let Err(error) = engine.merge_delta(delta) {

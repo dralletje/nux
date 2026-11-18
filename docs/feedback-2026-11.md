@@ -40,6 +40,14 @@ sections. This file keeps what became of each item, so that it can be picked up 
   `| ignore` and output sent to a file give none. Earlier external commands' output too
   (check-exit passes it on). The usage log has all of it in `stdout`.
 
+## Upstream (Nushell), to fix later
+
+- **`to json` writes control characters unescaped.** A string with an ESC (terminal colors in
+  logged test output) comes out of `to json` with the ESC as is, which is not valid JSON:
+  Node's `JSON.parse` refuses it ("Bad control character in string literal"). Found
+  2026-11-18 while rendering logged values for the format runs (they now leave such values
+  out). To report to Nushell (0.117); nux could escape them in the meantime.
+
 ## Open: a decision first
 
 - **1.4, 3.1 Kept results.** Not re-keeping a value that came from `kept` is a clear fix.

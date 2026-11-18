@@ -66,8 +66,8 @@ export def check-exit [
 
 # Print a value in the middle of a pipeline, and pass it on unchanged.
 #
-# A call only prints the value of its last expression; this is for seeing something before
-# that. It prints the way the last value is printed: data as NUON, text as it is.
+# A call prints the value of each statement; this is for seeing something in the middle of a
+# pipeline. It prints the way a call's values are printed (see `to readable`).
 #
 # With a closure, what is printed is what the closure makes of the value (a count, the first
 # rows, some columns), while the whole value still goes on to the next command:
@@ -99,7 +99,8 @@ export def show [
   let seen = (if $view == null { $value } else { $value | do $view })
   # A polars frame cannot be written as NUON: take its rows.
   let seen = (if ($seen | describe) =~ '^polars_' { $seen | polars into-nu } else { $seen })
-  let text = (if ($seen | describe) == "string" { $seen } else { $seen | to nuon --raw --serialize })
+  # As nux prints a call's values (`to readable`: readable, or NUON with NUX_FORMAT=nuon).
+  let text = ($seen | to readable)
   let length = ($text | str length)
   let text = if $length <= $SHOW_LIMIT { $text } else {
     $"($text | str substring 0..<$SHOW_LIMIT)\n... \(($length - $SHOW_LIMIT) more characters not shown. Narrow it down: show { first 20 }, show { length }, show { select <columns> }\)"

@@ -49,6 +49,10 @@ pub fn keep(engine: &EngineState, name: &str, value: &Value) -> Result<(), Strin
 pub fn keep_result(engine: &EngineState, value: &Value) -> Option<String> {
     let text = nuon(engine, value).ok()?;
     std::fs::create_dir_all(dir()).ok()?;
+    // Already kept (`kept result-3`, too large to print again): that name, not a new copy.
+    if let Some(name) = already_kept(&text) {
+        return Some(name);
+    }
     // `create_new`: two calls at the same time cannot take the same number. A number that
     // is taken means: try the next one. Any other failure (a full disk) ends it, and leaves
     // no file behind.
@@ -67,6 +71,19 @@ pub fn keep_result(engine: &EngineState, value: &Value) -> Option<String> {
         return Some(name);
     }
     None
+}
+
+/// The kept result whose NUON is exactly this, if there is one. Files of another size are
+/// not read.
+fn already_kept(text: &str) -> Option<String> {
+    std::fs::read_dir(dir()).ok()?.flatten().find_map(|entry| {
+        let file_name = entry.file_name();
+        let name = file_name.to_str()?.strip_suffix(".nuon")?;
+        if !name.starts_with("result-") || entry.metadata().ok()?.len() != text.len() as u64 {
+            return None;
+        }
+        (std::fs::read_to_string(entry.path()).ok()? == text).then(|| name.to_string())
+    })
 }
 
 /// Keep the variables of a call that failed; says what was kept, for under the error.

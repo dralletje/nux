@@ -96,6 +96,10 @@ fn values_are_printed_for_reading() {
     // The rest stays NUON.
     assert_eq!(run("[1 2 3]"), "[1,2,3]\n");
     assert_eq!(run("0..<10"), "0..<10\n");
+    // `show` and the sample of a large result print the same form.
+    assert_eq!(run("[[a b]; [1 x]] | show | ignore"), "| a | b |\n|---|---|\n| 1 | x |\n");
+    let large = run("1..5000 | each {|i| {i: $i, s: 'some text'} }");
+    assert!(large.contains("| i | s |\n|---|---|\n| 1 | some text |"), "{large}");
     // NUX_FORMAT=nuon: NUON for everything, as before.
     assert_eq!(nux_with(&[], "[[a b]; [1 x]]", &[("NUX_FORMAT", std::path::Path::new("nuon"))]).stdout, "[[a,b];[1,x]]\n");
 }
@@ -666,6 +670,13 @@ fn a_large_result_is_saved_to_a_file() {
     // A preview: the shape, how many rows, and the first ones.
     assert!(run.stdout.contains("table<i: int, s: string>, 5000 rows"), "{}", run.stdout);
     assert!(run.stdout.contains("[[i,s];[1,\"some text\"],[2,\"some text\"]"), "{}", run.stdout);
+    // Getting it back whole is too large again: it says the same name, it keeps no copy.
+    let again = nux(&[], &format!("kept {name}"));
+    assert!(again.stdout.contains(&format!("all of it is kept as `{name}`")), "{}", again.stdout);
+    let copies = nux(&[], "kept | where name =~ '^result-' | length").stdout;
+    let before = copies.trim().parse::<usize>().unwrap();
+    nux(&[], &format!("kept {name}"));
+    assert_eq!(nux(&[], "kept | where name =~ '^result-' | length").stdout.trim().parse::<usize>().unwrap(), before);
 }
 
 #[test]

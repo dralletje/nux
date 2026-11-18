@@ -38,6 +38,26 @@ pub fn nuon(engine: &EngineState, value: &Value) -> String {
     nuon::to_nuon(engine, value, config).unwrap_or_else(|_| value.to_expanded_string(", ", &engine.get_config()))
 }
 
+/// A value as nux shows it: text as it is; anything else readable, or NUON with
+/// NUX_FORMAT=nuon. (A call's value, `show`, and the sample of a large result.)
+pub fn shown(engine: &EngineState, value: &Value) -> String {
+    match value {
+        Value::String { val, .. } => val.clone(),
+        _ if nuon_wanted() => nuon(engine, value),
+        _ => readable(engine, value),
+    }
+}
+
+/// A value on one line, after a key: a scalar readable (text by the rules for a record's
+/// values, durations and sizes for reading), a list or record as NUON.
+pub fn inline(engine: &EngineState, value: &Value) -> String {
+    match value {
+        Value::List { .. } | Value::Record { .. } => nuon(engine, value),
+        _ if nuon_wanted() => nuon(engine, value),
+        _ => Render { engine }.scalar_or_nuon(value),
+    }
+}
+
 /// The readable form of a value that is not text (text is printed as it is, by the caller).
 pub fn readable(engine: &EngineState, value: &Value) -> String {
     let r = Render { engine };

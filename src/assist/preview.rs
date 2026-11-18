@@ -34,10 +34,10 @@ pub fn large_value(engine: &EngineState, value: &Value, name: &str, bytes: usize
         Value::List { vals, .. } => {
             let what = if vals.iter().all(|v| matches!(v, Value::Record { .. })) { "rows" } else { "items" };
             let mut shown = ROWS.min(vals.len());
-            let mut sample = nuon(engine, &Value::list(vals[..shown].iter().map(shorten).collect(), Span::unknown()));
+            let mut sample = shown_as(engine, &Value::list(vals[..shown].iter().map(shorten).collect(), Span::unknown()));
             while sample.len() > BUDGET && shown > 1 {
                 shown /= 2;
-                sample = nuon(engine, &Value::list(vals[..shown].iter().map(shorten).collect(), Span::unknown()));
+                sample = shown_as(engine, &Value::list(vals[..shown].iter().map(shorten).collect(), Span::unknown()));
             }
             format!(
                 "{}, {} {what}. The first {shown} (long text cut short):\n{sample}\nMore, in a next call: kept {name} | where ... | first 20",
@@ -50,7 +50,7 @@ pub fn large_value(engine: &EngineState, value: &Value, name: &str, bytes: usize
                 .iter()
                 .take(FIELDS)
                 .map(|(key, field)| {
-                    let shown = nuon(engine, &shorten(field));
+                    let shown = crate::readable::inline(engine, &shorten(field));
                     if shown.len() <= CELL { format!("  {key}: {shown}") } else { format!("  {key}: {} ({})", type_of(field), size_of(field)) }
                 })
                 .collect::<Vec<_>>()
@@ -83,9 +83,9 @@ pub fn large_text(text: &str, name: &str) -> String {
     )
 }
 
-fn nuon(engine: &EngineState, value: &Value) -> String {
-    let config = nuon::ToNuonConfig::default().style(nuon::ToStyle::Raw).raw_strings(true);
-    nuon::to_nuon(engine, value, config).unwrap_or_else(|_| format!("<{}>", value.get_type()))
+/// A sample as nux shows values (readable, or NUON with NUX_FORMAT=nuon).
+fn shown_as(engine: &EngineState, value: &Value) -> String {
+    crate::readable::shown(engine, value)
 }
 
 /// Nushell's name for the type, e.g. `table<name: string, size: filesize>`, kept short.
