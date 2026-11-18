@@ -88,8 +88,9 @@ fn values_are_printed_for_reading() {
     // A long nested value: indented under its key.
     let long = run("{nested: {items: (1..30 | each { $\"item($in)\" })}}");
     assert!(long.starts_with("nested:\n  items:\n    - item1\n    - item2\n"), "{long}");
-    // A table that is not simple (a nested cell): a record per row.
-    assert_eq!(run("[[a b]; [1 [x]]]"), "## 0\na: 1\nb: [x]\n");
+    // A table that is not simple (a nested cell): a record per row, the number of rows above.
+    assert_eq!(run("[[a b]; [1 [x]]]"), "1 row\n## 0\na: 1\nb: [x]\n");
+    assert_eq!(run("[[a b]; [1 [x]] [2 [y]]]"), "2 rows\n## 0\na: 1\nb: [x]\n\n## 1\na: 2\nb: [y]\n");
     // The rest stays NUON.
     assert_eq!(run("[1 2 3]"), "[1,2,3]\n");
     assert_eq!(run("0..<10"), "0..<10\n");

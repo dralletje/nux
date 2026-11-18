@@ -91,6 +91,45 @@ Three things to find out:
 - For the full run: values grown towards 10 KiB (where formats should differ), more
   questions per kind (≥ 30 each), and the counts read from the output, not guessed.
 
+## A larger run (2026-11-18, subagents)
+
+- Data: 24 values from the log of 2,500 to 10,240 characters as NUON (12 tables of 4 to 78
+  rows, 7 records, 5 lists; values with terminal colors left out), 103 questions: lookup 26
+  (half of them far down a table, far from its header), count 37, exact copy 19, exists 12
+  (half near misses), nested 9.
+- Formats: NUON, JSON, YAML, v0, v0 with the number of rows above `## 0` ("v0-count"), v0
+  with headings from 1 ("v0-from-1"), Markdown-KV (`## Record N`), Markdown tables (`to
+  md`), TOON (reference implementation 4.4.0). Opus and Haiku, one subagent per format and
+  model (18), read only, answers written to a file.
+- Results (right of 103; exact and lenient scoring gave the same numbers):
+
+  | | YAML | JSON | NUON | TOON | v0 | v0-count | v0-from-1 | MD-KV | MD table |
+  |---|---|---|---|---|---|---|---|---|---|
+  | Opus | 103 | 103 | 103 | 102 | 103 | 103 | 103 | 102 | 103 |
+  | Haiku | 103 | 101 | 101 | 101 | **97** | 101 | 101 | 100 | 99 |
+  | characters | 131,672 | 130,986 | 116,871 | 116,055 | 131,192 | 131,287 | 131,203 | 129,023 | 121,211 |
+
+- What went wrong, by cause:
+  - **v0's `## 0` headings**: 4 of Haiku's 6 misses with v0 are row counts one short (19 for
+    20, 24 for 25 twice) and a lookup of a row it therefore thought was not there. Same cause
+    as in the small run. With the count line (v0-count) none of these happen; with headings
+    from 1 neither, but one other count went wrong there.
+  - **Counting long lists and tables** is Haiku's most common miss in every format (JSON,
+    Markdown table, Markdown-KV, v0-count too): off by one on 46, 76, 12 items.
+  - **Copying a 9-line text exactly** (a diff hunk, question 24.0) failed in 6 runs across
+    5 formats, Opus with Markdown-KV among them: a space of indentation lost, or cut short.
+    Hard in any form; not a format effect.
+  - Opus: one lookup in TOON (197 for 174), and 24.0 in Markdown-KV. Otherwise perfect.
+- What it says: for Opus the format does not matter at these sizes. For Haiku, YAML was the
+  only perfect one, and plain v0 the worst, entirely because of its 0-based headings; the
+  other differences (1 to 4 questions) are within noise for 103 questions. TOON and NUON are
+  the smallest (about 12% under JSON, YAML and v0); Markdown tables in between.
+- Done: v0 now writes the number of rows above `## 0` ("v0-count"), since 2026-11-18.
+- Not settled by this: YAML against v0-count for small models (103 against 101), and whether
+  v0's size costs more than its readability gains; the logged values here are data, not the
+  text (code, file contents) where v0 differs most from NUON. A run on text-heavy values
+  (lists of code lines, search rows) is the next one to do.
+
 ## What others found
 
 Improving Agents (improvingagents.com) compared formats in three posts. What they found,

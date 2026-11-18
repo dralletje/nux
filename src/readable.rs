@@ -178,18 +178,24 @@ impl Render<'_> {
                 }
                 lines.join("\n")
             }
-            _ => rows
-                .iter()
-                .enumerate()
-                .map(|(index, row)| {
-                    let fields = match row {
-                        Value::Record { val, .. } => self.record(val.iter(), 0),
-                        other => vec![nuon(self.engine, other)],
-                    };
-                    format!("## {index}\n{}", fields.join("\n"))
-                })
-                .collect::<Vec<_>>()
-                .join("\n\n"),
+            // The number of rows goes above `## 0`: without it, readers counted the rows by the
+            // last heading, one short (docs/output-format-eval.md, both runs).
+            _ => {
+                let count = if rows.len() == 1 { "1 row".to_string() } else { format!("{} rows", rows.len()) };
+                let blocks = rows
+                    .iter()
+                    .enumerate()
+                    .map(|(index, row)| {
+                        let fields = match row {
+                            Value::Record { val, .. } => self.record(val.iter(), 0),
+                            other => vec![nuon(self.engine, other)],
+                        };
+                        format!("## {index}\n{}", fields.join("\n"))
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n\n");
+                format!("{count}\n{blocks}")
+            }
         }
     }
 }

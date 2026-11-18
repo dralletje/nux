@@ -49,7 +49,8 @@ WRITE IT ON MANY LINES
       leave a statement's value out: `... | ignore` (an external command: `o> /dev/null`).
     - Text as it is. Other values in a form made for reading:
         a table             a Markdown table (header again every 20 rows); a wide one, or
-                            one with lists or records in it: `## 0`, `## 1`, ... per row
+                            one with lists or records in it: `12 rows`, then `## 0`, `## 1`,
+                            ... per row (counting from 0, as `get 0` does)
         a record            `key: value` lines; text over several lines in a ``` block
         a list of texts     `- item` per line
         text inside those   as it is, or in "..." with JSON escapes when it could be misread
