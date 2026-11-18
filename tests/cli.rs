@@ -28,7 +28,10 @@ fn nux_with(args: &[&str], code: &str, env: &[(&str, &std::path::Path)]) -> Run 
         .args(args)
         .env("NUX_LOG_DIR", dir.join("log"))
         .env("NUX_DIR", dir.join("nux"))
-        // Last, so that a test can override the two above.
+        // Values as NUON: exact and typed, to compare. The readable form, nux's default, has
+        // tests of its own (`values_are_printed_for_reading`), which set NUX_FORMAT back.
+        .env("NUX_FORMAT", "nuon")
+        // Last, so that a test can override the ones above.
         .envs(env.iter().map(|(k, v)| (*k, *v)))
         .current_dir(&dir)
         .stdin(Stdio::piped())
@@ -57,6 +60,41 @@ fn help_is_the_one_manual() {
     let guide = nux(&["guide"], "");
     assert_ne!(guide.status, 0);
     assert!(format!("{}{}", guide.stdout, guide.stderr).contains("Unknown command"));
+}
+
+/// nux's default form, made for reading (src/readable.rs, "v0" in docs/output-format-eval.md).
+#[test]
+fn values_are_printed_for_reading() {
+    let readable = std::path::Path::new("readable");
+    let run = |code: &str| {
+        let run = nux_with(&[], code, &[("NUX_FORMAT", readable)]);
+        assert_eq!(run.status, 0, "{code}: {}{}", run.stdout, run.stderr);
+        run.stdout
+    };
+    // A table: Markdown; a list of texts: `- item`, quoted only when it could be misread.
+    assert_eq!(run("[[a b]; [1 x] [2 'y|z']]"), "| a | b |\n|---|---|\n| 1 | x |\n| 2 | \"y|z\" |\n");
+    // ("two\nlines" has a newline; 'let s = "a\nb";' a backslash and an n, as code does.)
+    assert_eq!(
+        run("[one \"two\\nlines\" '12' '' 'let s = \"a\\nb\";']"),
+        "- one\n- \"two\\nlines\"\n- \"12\"\n- \"\"\n- let s = \"a\\nb\";\n"
+    );
+    // A record: `key: value`; durations and sizes for reading; short nested values inline.
+    assert_eq!(
+        run("{took: 1500ms, size: 4512345b, at: 2026-11-17T14:02:11+00:00, files: [a b]}"),
+        "took: 1sec 500ms\nsize: ~4.512MB\nat: 2026-11-17T14:02:11+00:00\nfiles: [a,b]\n"
+    );
+    // A text over several lines in a record: a fenced block under its key.
+    assert_eq!(run("{message: \"first\\n\\nsecond\"}"), "message:\n```\nfirst\n\nsecond\n```\n");
+    // A long nested value: indented under its key.
+    let long = run("{nested: {items: (1..30 | each { $\"item($in)\" })}}");
+    assert!(long.starts_with("nested:\n  items:\n    - item1\n    - item2\n"), "{long}");
+    // A table that is not simple (a nested cell): a record per row.
+    assert_eq!(run("[[a b]; [1 [x]]]"), "## 0\na: 1\nb: [x]\n");
+    // The rest stays NUON.
+    assert_eq!(run("[1 2 3]"), "[1,2,3]\n");
+    assert_eq!(run("0..<10"), "0..<10\n");
+    // NUX_FORMAT=nuon: NUON for everything, as before.
+    assert_eq!(nux_with(&[], "[[a b]; [1 x]]", &[("NUX_FORMAT", std::path::Path::new("nuon"))]).stdout, "[[a,b];[1,x]]\n");
 }
 
 #[test]
@@ -323,6 +361,8 @@ fn nux_in(dir: &std::path::Path, code: &str) -> Run {
     let mut child = Command::new(env!("CARGO_BIN_EXE_nux"))
         .env("NUX_LOG_DIR", scratch().join("log"))
         .env("NUX_DIR", scratch().join("nux"))
+        // Exact values to compare (see nux_with).
+        .env("NUX_FORMAT", "nuon")
         .current_dir(dir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

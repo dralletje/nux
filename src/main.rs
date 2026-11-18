@@ -9,6 +9,7 @@ mod engine;
 mod format;
 mod paths;
 mod prelude;
+mod readable;
 mod rewrite;
 mod usage_log;
 

@@ -47,8 +47,18 @@ WRITE IT ON MANY LINES
           9caf6b7 Fixes from a day of agent use
       A `let`, `def`, `use`, `for`, an assignment, a `print` or a `cd` gives no value. To
       leave a statement's value out: `... | ignore` (an external command: `o> /dev/null`).
-    - Data as NUON, Nushell's notation: types are kept, a table's column names are written
-      once. Text as it is.
+    - Text as it is. Other values in a form made for reading:
+        a table             a Markdown table (header again every 20 rows); a wide one, or
+                            one with lists or records in it: `## 0`, `## 1`, ... per row
+        a record            `key: value` lines; text over several lines in a ``` block
+        a list of texts     `- item` per line
+        text inside those   as it is, or in "..." with JSON escapes when it could be misread
+                            (empty, spaces at an end, a number, true/false/null, a newline);
+                            so text without quotes is exactly what it says
+        durations, sizes    `~1min 28sec`, `~4.512MB` (`~`: rounded)
+        anything else       NUON, Nushell's notation (`[1,2,3]`, `0..<10`, nested values)
+      The exact value, with its types: `| to nuon`, or `kept` for a large one.
+      NUX_FORMAT=nuon in the environment gives NUON for everything.
     - An external command (`^git push`, `pnpm build`): what it printed. When it fails, all
       its output is printed, with "exited with code N", and the call ends there (exit status
       1, nothing after it runs).

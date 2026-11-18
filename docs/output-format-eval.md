@@ -1,7 +1,9 @@
 # Plan: which format should nux print for agents? (NUON vs TOON vs our own)
 
 Status: plan, nothing run yet (no API key yet). Follows from item 3.3 of
-`docs/feedback-2026-11.md`. A first guess to use until then: "v0" below.
+`docs/feedback-2026-11.md`. A first guess, "v0" below, is nux's default since 2026-11-17
+(src/readable.rs; `NUX_FORMAT=nuon` for the old output). Nested values in v0: NUON on the
+key's line up to 80 characters, else indented under the key by the same rules.
 
 ## The discussion so far (2026-11-17)
 

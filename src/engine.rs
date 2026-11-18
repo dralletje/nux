@@ -20,7 +20,7 @@ use crate::{
     assist::{self, Raw},
     commands::{self, kept},
     format::{self, CODE_FILE, Sources, format_completed, without_final_newline},
-    prelude,
+    prelude, readable,
     rewrite::{line_of, nu_raw_string, shorten, statements, with_exit_checks},
     usage_log::Outcome,
 };
@@ -452,14 +452,9 @@ pub fn value_text(engine: &EngineState, value: &Value) -> String {
         Value::Nothing { .. } => return String::new(),
         // Text (also what an external command printed, or `to json` made) is shown as it is.
         Value::String { val, .. } => without_final_newline(val).to_string(),
-        _ => {
-            let config = nuon::ToNuonConfig::default().style(nuon::ToStyle::Raw).raw_strings(true);
-            match nuon::to_nuon(engine, value, config) {
-                Ok(text) => text,
-                // A closure, a polars frame: what Nushell would print for it.
-                Err(_) => value.to_expanded_string(", ", &engine.get_config()),
-            }
-        }
+        // NUON, as before, when asked for (NUX_FORMAT=nuon); else made for reading.
+        _ if readable::nuon_wanted() => readable::nuon(engine, value),
+        _ => readable::readable(engine, value),
     };
     if text.len() <= OUTPUT_LIMIT {
         return text;
