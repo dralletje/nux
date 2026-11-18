@@ -1,0 +1,8 @@
+   Compiling cargo-sample v0.1.0 (/work/cargo-sample)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.22s
+     Running unittests src/lib.rs (target/debug/build/cargo-sample/6e892c9df5729c27/out/cargo_sample-6e892c9df5729c27)
+error: test failed, to rerun pass `--lib`
+     Running tests/integration.rs (target/debug/build/cargo-sample/6bf086fbe72fc2a1/out/integration-6bf086fbe72fc2a1)
+   Doc-tests cargo_sample
+error: 1 target failed:
+    `--lib`

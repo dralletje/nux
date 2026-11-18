@@ -1,4 +1,6 @@
-# Test results as a table.
+# Test results as a table: `nux/test-format`, the parsers of what test runners print, one
+# per runner and format (`from tap`, `from node-26-test`, `from cargo-test`). Loaded in every
+# call.
 #
 # There is no command here that runs tests. You run them the way the project does, and pipe
 # what that prints into the parser for the test runner and version that printed it:
@@ -294,4 +296,83 @@ export def "from tap" []: any -> table {
     })
   }
   $rows | test-results
+}
+
+# Parse what `cargo test` prints into the test table.
+#
+# For Rust's built-in test harness, as `cargo test` (or `cargo nextest`-less `cargo test
+# --workspace`) prints it: `test name ... ok`, `... FAILED`, `... ignored`, then for each
+# failure a `---- name stdout ----` block with its panic. A failed test gets its file and
+# line from the panic (`panicked at src/lib.rs:12:9`) and the panic's message as `error`.
+# The harness prints no time per test: `duration` is null. Checked with Rust 1.100.
+#
+# The test lines are on stdout and cargo's own messages (compiling, which binary runs) on
+# stderr: give it the whole record of `complete`. Output without test lines, from a command
+# that failed (it did not compile), is an error that shows the end of stderr.
+@search-terms rust cargo "cargo test" "failing tests" "test results"
+@example "Which tests fail, and why" {
+  ^cargo test
+  | complete
+  | from cargo-test
+  | where status == fail
+  | select name file line error
+}
+@example "A summary" {
+  ^cargo test --workspace
+  | complete
+  | from cargo-test
+  | group-by status --to-table
+  | each {|group|
+      {status: $group.status, tests: ($group.items | length)}
+    }
+}
+export def "from cargo-test" []: any -> table {
+  let source = ($in | command-output)
+  let lines = ($source.text | lines)
+  # Doc tests have spaces in their names: `test src/lib.rs - add (line 3) ... ok`.
+  let results = ($lines | parse --regex '^test (?<name>.+?) \.\.\. (?<result>ok|FAILED|ignored)(?:,.*)?$')
+  let ran = ($lines | any {|line| $line =~ '^running \d+ tests?$' })
+  if ($results | is-empty) and (not $ran or $source.exit_code not-in [null 0]) {
+    $source | not-the-format "from cargo-test" "what cargo test prints (lines like `test name ... ok`)" "Did it compile? Compiler errors are on stderr: give from cargo-test the whole record of `complete`."
+  }
+  # The failures: `---- name stdout ----`, up to the next one, or up to the list of names
+  # (`failures:`) that ends them.
+  mut failures = {}
+  # The test whose block this is; "" outside a block.
+  mut current = ""
+  mut block = []
+  for line in $lines {
+    let start = ($line | parse --regex '^---- (?<name>.+) stdout ----$')
+    if ($start | is-not-empty) or ($current != "" and $line == "failures:") {
+      if $current != "" {
+        $failures = ($failures | upsert $current ($block | str join "\n" | str trim))
+      }
+      $current = if ($start | is-not-empty) { $start.0.name } else { "" }
+      $block = []
+      continue
+    }
+    if $current != "" { $block ++= [$line] }
+  }
+  let failures = $failures
+  $results | each {|test|
+    let output = ($failures | get --optional $test.name)
+    let place = if $output == null { [] } else { $output | parse --regex "panicked at (?<file>[^\n]+?):(?<line>\\d+):\\d+:" }
+    # The panic's message: what follows `panicked at ...:`, without the backtrace note.
+    let message = if $output == null { null } else {
+      $output
+      | str replace --regex "(?s)^.*?panicked at [^\n]+:\n" ""
+      | lines
+      | where $it !~ '^note: run with `RUST_BACKTRACE'
+      | str join "\n"
+      | str trim
+    }
+    {
+      name: $test.name
+      status: (match $test.result { "ok" => "pass", "FAILED" => "fail", _ => "skip" })
+      duration: null
+      file: ($place.0?.file?)
+      line: ($place.0?.line?)
+      error: (if $test.result == "FAILED" { $message | default "failed" } else { null })
+    }
+  } | test-results
 }

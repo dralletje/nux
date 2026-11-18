@@ -531,6 +531,45 @@ fn from_tsc_reads(version: &str) {
     assert_eq!(rows("build-pretty.txt"), build, "{version}: --pretty gives the same rows, without the summary");
 }
 
+/// `from cargo-test` reads what `cargo test` printed (fixtures: a crate with a passing, a
+/// failing, a panicking and an ignored test, and a second test binary; and one that does not
+/// compile, which must be an error, never an empty table).
+#[test]
+fn from_cargo_test_reads_what_cargo_test_prints() {
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/cargo-test");
+    let record = |name: &str| {
+        format!(
+            "{{stdout: (open --raw '{0}/{name}.stdout.txt'), stderr: (open --raw '{0}/{name}.stderr.txt'), exit_code: 101}}",
+            fixtures.display()
+        )
+    };
+    let run = nux(&[], &format!("{} | from cargo-test | to json --raw", record("failing")));
+    assert_eq!(run.status, 0, "{}{}", run.stdout, run.stderr);
+    let rows: serde_json::Value = serde_json::from_str(&run.stdout).unwrap();
+    let summary: Vec<String> = rows
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| format!("{} {} {}:{}", r["name"].as_str().unwrap(), r["status"].as_str().unwrap(), r["file"], r["line"]))
+        .collect();
+    assert_eq!(
+        summary,
+        [
+            "tests::slow skip null:null",
+            "tests::adds pass null:null",
+            "tests::adds_wrong fail \"src/lib.rs\":12",
+            "tests::panics_with_lines fail \"src/lib.rs\":21",
+            "from_outside pass null:null",
+        ]
+    );
+    assert_eq!(rows[2]["error"], "assertion `left == right` failed: one and two\n  left: 3\n right: 4");
+    assert_eq!(rows[3]["error"], "first line\nsecond line");
+    let run = nux(&[], &format!("{} | from cargo-test", record("compile-error")));
+    assert_eq!(run.status, 1, "{}", run.stdout);
+    assert!(run.stdout.contains("from cargo-test: this is not what cargo test prints"), "{}", run.stdout);
+    assert!(run.stdout.contains("expected expression, found"), "{}", run.stdout);
+}
+
 /// `from tsc` takes the record of `complete`, reads both streams, and fails when the command
 /// failed without a diagnostic: `[]` must mean "no errors", never "tsc did not run". From
 /// `pnpm -r`, the package folder before each line becomes part of the file.

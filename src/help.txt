@@ -148,6 +148,10 @@ COMMANDS THAT GIVE TABLES   (examples for each: nux help <command>)
           | from tap
                                             (`from node-26-test` reads Node 20+'s default
                                             output instead, without the option.)
+      ^cargo test | complete | from cargo-test
+                                            the same table for Rust's tests; a failure's file
+                                            and line from its panic. All test parsers
+                                            (nux/test-format): nux find "test results"
       ports                                 what listens where: port, pid, name, command, cwd
       wait-for http://localhost:8888/       wait until a server answers (or: wait-for 5432)
   `git` is nux's own: only the table commands above. `git` alone lists them, and which of
