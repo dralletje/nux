@@ -50,6 +50,36 @@ pub fn install(engine: &mut EngineState) -> Result<String, String> {
     Ok("use nux/prelude *".to_string())
 }
 
+/// The user's own modules and prelude, and the project's modules:
+///
+/// - `use home/<name>`: `<name>.nu` (or `<name>/mod.nu`) in the user's nux folder
+///   (`paths::config_dir`, `~/.config/nux`);
+/// - `use project/<name>`: the same in `.nu/` of the nearest folder with a `.git`, from `cwd`
+///   upwards;
+/// - that folder's `prelude.nu`, if there is one: the code that loads it (`source ...`), to run
+///   after nux's own prelude.
+///
+/// Virtual folders, as `nux/` is: they come before the current directory, so a folder named
+/// `home` there cannot take their place. A module's errors name it as it is used
+/// (`in project/g`). Inside them, modules use each other by those names (`use project/x`),
+/// not by a relative path.
+pub fn install_user(engine: &mut EngineState, cwd: &Path) -> Result<Option<String>, String> {
+    let config = crate::paths::config_dir();
+    let project = crate::paths::project_root(cwd).map(|root| root.join(".nu"));
+    let mut working_set = StateWorkingSet::new(engine);
+    for (name, dir) in [("home", Some(config.clone())), ("project", project)] {
+        let Some(dir) = dir.filter(|d| d.is_dir()) else { continue };
+        let mut found = Vec::new();
+        read_modules(&dir, &dir, &mut found).map_err(|e| format!("Could not read the modules in {}: {e}", dir.display()))?;
+        let modules: Vec<(&str, &[u8])> = found.iter().map(|(relative, contents)| (relative.as_str(), contents.as_slice())).collect();
+        let _ = add_virtual_dir(&mut working_set, name, "", &modules);
+    }
+    let delta = working_set.render();
+    engine.merge_delta(delta).map_err(|e| format!("Could not load your modules: {e}"))?;
+    let prelude = config.join("prelude.nu");
+    Ok(prelude.is_file().then(|| format!("source {}", nu_raw_string(&prelude.to_string_lossy()))))
+}
+
 /// The `.nu` files under `dir`, by their path relative to `root`.
 fn read_modules(root: &Path, dir: &Path, found: &mut Vec<(String, Vec<u8>)>) -> std::io::Result<()> {
     for entry in std::fs::read_dir(dir)? {
@@ -65,7 +95,8 @@ fn read_modules(root: &Path, dir: &Path, found: &mut Vec<(String, Vec<u8>)>) -> 
 }
 
 /// The virtual folder `name` with the modules under `relative` (a folder in `prelude/`, "" for
-/// the top), its subfolders first: a folder lists the ids of what is in it.
+/// the top), its subfolders first: a folder lists the ids of what is in it. Errors name a
+/// module the way it is used (`nux/git`, `project/g`: format::short_name).
 fn add_virtual_dir(working_set: &mut StateWorkingSet, name: &str, relative: &str, modules: &[(&str, &[u8])]) -> VirtualPathId {
     let mut entries = Vec::new();
     let mut subfolders = BTreeSet::new();

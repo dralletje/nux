@@ -190,6 +190,13 @@ fn main() {
         let warning = format!("Warning: nux's own commands (py, js, search, git, ...) are missing, because the prelude did not load:\n{problem}");
         reply.text = format::join(&[&warning, &reply.text]);
     }
+    if let Some(problem) = &nu.user_problem {
+        let warning = format!(
+            "Warning: your prelude or modules did not load ({}/prelude.nu, a project's .nu/), so what they define is missing:\n{problem}",
+            paths::config_dir().display()
+        );
+        reply.text = format::join(&[&warning, &reply.text]);
+    }
     finish(reply)
 }
 

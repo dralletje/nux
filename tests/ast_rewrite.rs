@@ -26,6 +26,7 @@ fn nux(dir: &Path, code: &str, env: &[(&str, &str)]) -> (i32, String, String) {
     let mut child = Command::new(env!("CARGO_BIN_EXE_nux"))
         .env("NUX_LOG_DIR", dir.join("log"))
         .env("NUX_DIR", dir.join("nux"))
+        .env("NUX_CONFIG_DIR", dir.join("config"))
         .envs(env.iter().copied())
         .current_dir(dir)
         .stdin(Stdio::piped())

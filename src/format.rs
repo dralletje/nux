@@ -247,7 +247,9 @@ pub fn error_record(error: &dyn Diagnostic, sources: &dyn Sources, text: &str) -
 /// A module of the prelude by the name it is used with (`nux/git`, src/prelude.rs), another
 /// file by its own name, not its whole path.
 fn short_name(name: &str) -> &str {
-    if name.starts_with("nux/") {
+    // Modules by the name they are used with: nux's own (`nux/git`), the user's (`home/x`),
+    // the project's (`project/x`).
+    if ["nux/", "home/", "project/"].iter().any(|prefix| name.starts_with(prefix)) {
         return name.strip_suffix("/mod.nu").unwrap_or(name);
     }
     name.rsplit('/').next().unwrap_or(name)

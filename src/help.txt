@@ -100,6 +100,15 @@ NOTHING CARRIES OVER, EXCEPT WHAT IS KEPT
       $rows | kept --save rows      keep a value yourself; later: kept rows
   Kept per agent conversation, in {kept_dir}.
 
+YOUR OWN COMMANDS
+  ~/.config/nux/prelude.nu runs at the start of every call (its `def`s and `$env` are there).
+  Modules, loaded with `use`:
+      use home/tools                ~/.config/nux/tools.nu (or tools/mod.nu)
+      use project/checks            .nu/checks.nu in the project: the nearest folder upwards
+                                    with a .git
+  Inside them, use each other by those names (`use project/checks`), not by a relative path.
+  ($XDG_CONFIG_HOME/nux instead of ~/.config/nux when that is set.)
+
 TRYING CODE
   To run code apart from your own call, as `nu -c` would but with data back:
       try-nu 'open nope.json'                  {value, error, printed, stderr}

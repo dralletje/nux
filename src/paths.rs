@@ -42,6 +42,24 @@ pub fn check_nux_dir() -> Result<(), String> {
     Ok(())
 }
 
+/// The user's own nux folder: `prelude.nu` (loaded in every call) and modules for
+/// `use home/<name>`. `$XDG_CONFIG_HOME/nux`, else `~/.config/nux`; NUX_CONFIG_DIR instead.
+pub fn config_dir() -> PathBuf {
+    if let Some(dir) = std::env::var_os("NUX_CONFIG_DIR").filter(|d| !d.is_empty()) {
+        return PathBuf::from(dir);
+    }
+    match std::env::var_os("XDG_CONFIG_HOME").filter(|d| !d.is_empty()) {
+        Some(dir) => PathBuf::from(dir).join("nux"),
+        None => home().join(".config/nux"),
+    }
+}
+
+/// The project a folder is in: the nearest folder, from it upwards, with a `.git` (a folder in
+/// a checkout, a file in a worktree or submodule).
+pub fn project_root(from: &std::path::Path) -> Option<PathBuf> {
+    from.ancestors().find(|dir| dir.join(".git").exists()).map(PathBuf::from)
+}
+
 /// The usage log: every call, one file per UTC day.
 pub fn usage_log_dir() -> PathBuf {
     match std::env::var_os("NUX_LOG_DIR") {

@@ -31,6 +31,8 @@ fn nux_with(args: &[&str], code: &str, env: &[(&str, &std::path::Path)]) -> Run 
         // Values as NUON: exact and typed, to compare. The readable form, nux's default, has
         // tests of its own (`values_are_printed_for_reading`), which set NUX_FORMAT back.
         .env("NUX_FORMAT", "nuon")
+        // Not the user's own prelude and modules (~/.config/nux).
+        .env("NUX_CONFIG_DIR", dir.join("config"))
         // Last, so that a test can override the ones above.
         .envs(env.iter().map(|(k, v)| (*k, *v)))
         .current_dir(&dir)
@@ -368,8 +370,9 @@ fn nux_in(dir: &std::path::Path, code: &str) -> Run {
     let mut child = Command::new(env!("CARGO_BIN_EXE_nux"))
         .env("NUX_LOG_DIR", scratch().join("log"))
         .env("NUX_DIR", scratch().join("nux"))
-        // Exact values to compare (see nux_with).
+        // Exact values to compare, without the user's own prelude (see nux_with).
         .env("NUX_FORMAT", "nuon")
+        .env("NUX_CONFIG_DIR", scratch().join("config"))
         .current_dir(dir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -989,6 +992,54 @@ fn search_has_grep_s_ways_too() {
     assert!(missing.stdout.contains("search: nothing matches src/*.rs"), "{}", missing.stdout);
     // Text piped in is searched instead of files.
     assert_eq!(run("\"one\\nfind me\\nthree\" | search 'find' --context 1 | to grep"), "(input)-1-one\n(input):2:find me\n(input)-3-three\n");
+}
+
+/// The user's prelude.nu runs in every call; `use home/<name>` and `use project/<name>` find
+/// modules in the user's nux folder and in `.nu/` of the nearest folder with a `.git`.
+#[test]
+fn your_prelude_and_modules() {
+    let base = scratch().join(format!("user-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    let config = base.join("config");
+    let repo = base.join("repo");
+    std::fs::create_dir_all(config.join("deep")).unwrap();
+    std::fs::create_dir_all(repo.join(".git")).unwrap();
+    std::fs::create_dir_all(repo.join(".nu")).unwrap();
+    std::fs::create_dir_all(repo.join("sub/home")).unwrap();
+    std::fs::write(config.join("prelude.nu"), "def hello [] { 'hi from the prelude' }\n$env.FROM_PRELUDE = 'yes'\n").unwrap();
+    std::fs::write(config.join("tools.nu"), "export def tool [] { 'a home tool' }\n").unwrap();
+    std::fs::write(config.join("deep/mod.nu"), "export def inside [] { 'deep' }\n").unwrap();
+    std::fs::write(repo.join(".nu/g.nu"), "export def hello [] { 'the project g' }\n").unwrap();
+    // A folder `home` where the call runs does not take the place of the user's modules.
+    std::fs::write(repo.join("sub/home/tools.nu"), "export def tool [] { 'the wrong one' }\n").unwrap();
+    let run = |code: &str| {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_nux"))
+            .env("NUX_LOG_DIR", base.join("log"))
+            .env("NUX_DIR", base.join("nux"))
+            .env("NUX_FORMAT", "nuon")
+            .env("NUX_CONFIG_DIR", &config)
+            .current_dir(repo.join("sub"))
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child.stdin.take().unwrap().write_all(code.as_bytes()).unwrap();
+        let output = child.wait_with_output().unwrap();
+        String::from_utf8_lossy(&output.stdout).into_owned()
+    };
+    assert_eq!(run("[(hello) $env.FROM_PRELUDE]"), "[\"hi from the prelude\",yes]\n");
+    assert_eq!(run("use home/tools\ntools tool"), "a home tool\n");
+    assert_eq!(run("use home/deep\ndeep inside"), "deep\n");
+    // An error in such a module names it as it is used.
+    std::fs::write(repo.join(".nu/broken.nu"), "export def b [] { nope-command-xyz }\n").unwrap();
+    let out = run("use project/broken\nbroken b");
+    assert!(out.contains("in project/broken, line 1"), "{out}");
+    assert_eq!(run("use project/g\ng hello"), "the project g\n");
+    // A prelude that does not load: a warning, and the call still runs.
+    std::fs::write(config.join("prelude.nu"), "def broken [ {\n").unwrap();
+    let out = run("1 + 1");
+    assert!(out.contains("Warning: your prelude or modules did not load") && out.ends_with("2\n"), "{out}");
 }
 
 /// `nux help` finds the commands of modules that are loaded only with `use`.

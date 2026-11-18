@@ -53,6 +53,8 @@ pub struct Nu {
     stack: Stack,
     /// Set when the prelude did not load: nux's own commands are missing then.
     pub prelude_problem: Option<String>,
+    /// Set when the user's prelude or modules (~/.config/nux, a project's .nu) did not load.
+    pub user_problem: Option<String>,
     /// The code's last top-level statement: its line and how it is shown. Its value gets a
     /// line saying so when earlier values were shown (`statement_value`).
     last_statement: Option<(usize, String)>,
@@ -127,7 +129,7 @@ impl Nu {
 
         // External commands at the end of a pipeline hand their output to nux, instead of
         // writing to the terminal.
-        let mut nu = Nu { engine, stack: stack.capture_all(), prelude_problem: None, last_statement: None };
+        let mut nu = Nu { engine, stack: stack.capture_all(), prelude_problem: None, user_problem: None, last_statement: None };
         match prelude::install(&mut nu.engine) {
             Ok(source) => {
                 if let Err(failure) = nu.run_source("nux-prelude", &source) {
@@ -135,6 +137,17 @@ impl Nu {
                 }
             }
             Err(problem) => nu.prelude_problem = Some(problem),
+        }
+        // The user's modules and prelude (~/.config/nux), and the project's modules: a
+        // problem there is a warning, never a call that cannot run.
+        match prelude::install_user(&mut nu.engine, cwd) {
+            Ok(Some(source)) => {
+                if let Err(failure) = nu.run_source("nux-user-prelude", &source) {
+                    nu.user_problem = Some(failure.text);
+                }
+            }
+            Ok(None) => {}
+            Err(problem) => nu.user_problem = Some(problem),
         }
         Ok(nu)
     }
