@@ -22,8 +22,109 @@ curl -fsSL "https://github.com/dralletje/nux/releases/latest/download/nux-linux-
 
 Tools some commands use, when they are on PATH: `rg` (`search`), `ast-grep` (`ast-find`,
 from https://github.com/ast-grep/ast-grep/releases), `python3` (`py`), Node 26 or newer
-(`js`), `ss` (`ports`, `wait-for` a port). Plugins are the ones registered for `nu`, or
-with `plugin add` in nux; they must be of Nushell 0.117.
+(`js`, or `NUX_NODE` set to one), `ss` (`ports`, `wait-for` a port). Plugins are the ones
+registered for `nu`, or with `plugin add` in nux; they must be of Nushell 0.117.
+
+### Let an agent install it
+
+Paste this to the agent, on the machine nux goes on:
+
+```
+Install nux (https://github.com/dralletje/nux), the tools it uses and Nushell's plugins.
+Linux, x86_64 or arm64. No sudo: everything goes in ~/.local, nothing through apt.
+Skip any step whose tool is already there and new enough.
+
+1. nux: the release tarball for this architecture (arm64 for aarch64), into ~/.local/bin:
+   https://github.com/dralletje/nux/releases/latest/download/nux-linux-<x86_64|arm64>.tar.gz
+   Make sure ~/.local/bin is on PATH. Then run `nux help` and read all of it: from here
+   on, run every command through nux as it describes.
+2. ripgrep (`rg`, for `search`): the latest release of BurntSushi/ripgrep, the
+   x86_64-unknown-linux-musl or aarch64-unknown-linux-gnu tarball; `rg` into ~/.local/bin.
+3. ast-grep (for `ast-find`): the latest release of ast-grep/ast-grep,
+   app-<x86_64|aarch64>-unknown-linux-gnu.zip; `ast-grep` into ~/.local/bin. Not `sg`:
+   on many systems that name is a different program (shadow-utils).
+4. Node 26 or newer (for `js`): if `node --version` is older, the latest Node 26 linux
+   tarball from nodejs.org, unpacked to ~/.local/opt/node26, without replacing the
+   system node. Then set NUX_NODE=~/.local/opt/node26/bin/node (absolute path) where the
+   agent's environment comes from; for Claude Code that is "env" in ~/.claude/settings.json.
+5. python3 (for `py`) and ss (for `ports`): say so if either is missing; do not install.
+6. Plugins: the Nushell 0.117.0 release tarball (exactly that version; plugins must match),
+   https://github.com/nushell/nushell/releases/tag/0.117.0,
+   nu-0.117.0-<x86_64|aarch64>-unknown-linux-gnu.tar.gz. Copy every nu_plugin_* binary in
+   it to ~/.local/bin, and register each one from nux: plugin add ~/.local/bin/nu_plugin_x
+7. Check, all in one nux call: `plugin list` shows each plugin at 0.117.0;
+   `search 'nux' ~/.local/bin --files` and `ast-find --lang js 'console.log($A)' .`
+   run without a missing-tool error; `[1 2] | js 'data.length'` and `[1 2] | py 'len(data)'`
+   give 2. Report what is installed, with versions, and anything that failed.
+```
+
+## Telling agents to use it
+
+In `AGENTS.md`, `CLAUDE.md` or wherever the agent reads its standing instructions:
+
+```markdown
+# Shell: always use nux
+
+`nux` (https://github.com/dralletje/nux) is Nushell for agents: code goes in on stdin,
+results come back as structured data.
+
+- At the start of every session, before any other shell command, run `nux help` and read
+  it. It is the manual for how to call nux and how its Nushell differs from bash.
+- Every shell command goes through nux, including small one-off commands
+  (`nux <<< 'git status'`, `nux <<'NU' ... NU`). Do not run plain bash commands,
+  pipelines or scripts directly.
+- When unsure how to do something in nux, look it up (`nux find <word>`,
+  `nux help <command>`) instead of falling back to bash.
+- Read, write and edit files with your file tools, not through nux (no `open`, `save`,
+  `str replace` on files, heredocs or sed).
+- Inside nux, prefer its native commands over external tools: `search` instead of
+  `^grep`/`^rg`, `ls`/`glob` instead of `^find`, and so on.
+```
+
+The file-tools rule is for agents that have them (Claude Code: Read, Write, Edit); leave it
+out for one whose only tool is the shell.
+
+## Claude Code: nux and nothing else (optional)
+
+Instructions are followed most of the time. To make it every time, `hooks/nux-only.py` is a
+PreToolUse hook that blocks a Bash call unless it is one nux call, as `nux help` writes
+them: `nux <<< '...'`, `nux <<'NU'` up to the last line `NU`, `nux help`, `nux find`, each
+with or without `-r '...'`. A pipe after it, `cd x &&` before it, a second command after
+the heredoc: blocked, and the agent is told how to do it instead. It holds in every
+permission mode, `bypassPermissions` too, which permission rules alone do not (a deny rule
+cannot say "everything except nux", and allow rules are skipped when bypassing).
+
+One way around it is left open on purpose: a call with `run_in_background` runs as it is,
+because that is how to start a server (`nux help`: a server does not belong in a nux call).
+
+Install it (needs `python3`):
+
+```
+mkdir -p ~/.claude/hooks
+curl -fsSL https://raw.githubusercontent.com/dralletje/nux/main/hooks/nux-only.py \
+  -o ~/.claude/hooks/nux-only.py
+```
+
+and in `~/.claude/settings.json` (or a project's `.claude/settings.json`, for that project
+only), next to what is there:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "python3 ~/.claude/hooks/nux-only.py" }
+        ]
+      }
+    ]
+  }
+}
+```
+
+The hook reads only the command, so it is no sandbox: inside nux, `^rm -rf` runs as it
+would in bash. It makes agents use nux, not behave.
 
 ## Working on it
 
