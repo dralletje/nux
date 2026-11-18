@@ -298,6 +298,175 @@ export def "from tap" []: any -> table {
   $rows | test-results
 }
 
+# Parse what `bun test` prints into the test table.
+#
+# Bun prints its report on stderr: a line per file (`test/math.test.ts:`), a line per test
+# (`(pass) suite > name`, `(fail) ...`, `(skip)`, `(todo)`, a time in brackets for slow ones),
+# and above each `(fail)` its error: the code around it, `error: ...`, and where (`at ...
+# (file:line:col)`). A failed test gets that message, file and line. Checked with Bun 1.3.
+#
+# Bun in some environments (Claude Code sets CLAUDECODE=1) lists only failing tests; their
+# number of passing ones is then only in its summary, and this says so on stderr, since they
+# cannot be rows. An error outside any test (a syntax error, an import that failed) with no
+# test to report is an error here, never an empty table.
+#
+# Put `complete` between `bun test` and this: it fails when a test fails, and hands over both
+# streams.
+@search-terms bun "bun test" "failing tests" "test results"
+@example "Which tests fail, and why" {
+  ^bun test
+  | complete
+  | from bun-test
+  | where status == fail
+  | select name file line error
+}
+@example "Through a package script" { ^bun run test | complete | from bun-test | where status != pass }
+export def "from bun-test" []: any -> table {
+  let source = ($in | command-output)
+  let lines = ($source.stderr | ansi strip | lines | append ($source.text | ansi strip | lines))
+  let summary = {|word|
+    $lines | parse --regex ('^\s*(?<n>\d+) ' + $word + '$') | get 0?.n? | default "0" | into int
+  }
+  mut rows = []
+  # The file the lines are about; "" before the first.
+  mut file = ""
+  mut block = []
+  for line in $lines {
+    let header = ($line | parse --regex '^(?<file>[^\s:()][^:]*\.[A-Za-z]+):$')
+    if ($header | is-not-empty) {
+      $file = $header.0.file
+      $block = []
+      continue
+    }
+    let result = ($line | parse --regex '^\((?<status>pass|fail|skip|todo)\) (?<name>.+?)(?: \[(?<time>[\d.]+)(?<unit>ms|s)\])?$')
+    if ($result | is-empty) {
+      $block ++= [$line]
+      continue
+    }
+    let r = $result.0
+    # The error above a failure: from its `error:` line, without the `at ...` lines.
+    let error_lines = ($block | skip until {|l| $l =~ '^error:' })
+    let place = ($error_lines | parse --regex 'at .*?\(?(?<file>/[^():]+|[\w./-]+\.\w+):(?<line>\d+):\d+\)?$' | get 0?)
+    let message = ($error_lines | where $it !~ '^\s+at ' | str join "\n" | str replace --regex '^error: ' '' | str trim)
+    $rows ++= [{
+      name: $r.name
+      status: $r.status
+      duration: (if ($r.time | is-empty) { null } else if $r.unit == "s" { ($r.time | into float) * 1sec } else { ($r.time | into float) * 1ms })
+      file: (if $place != null { $place.file } else if $file != "" { $file } else { null })
+      line: (if $place != null { $place.line } else { null })
+      error: (if $r.status == "fail" { if $message == "" { "failed" } else { $message } } else { null })
+    }]
+    $block = []
+  }
+  let errors = (do $summary "error")
+  if ($rows | is-empty) and ($source.exit_code not-in [null 0] or $errors > 0) {
+    $source | not-the-format "from bun-test" "a bun test report with test results (lines like `(pass) name`)" "No test ran to the end: an error outside any test (a syntax error, an import that failed)?"
+  }
+  let passes = (do $summary "pass")
+  let listed = ($rows | where status == pass | length)
+  if $passes > $listed {
+    print -e $"from bun-test: ($passes - $listed) of ($passes) passing tests are not in the table: bun listed only failures \(it does with CLAUDECODE=1\); its summary has them."
+  }
+  if $errors > 0 {
+    print -e $"from bun-test: bun also reported ($errors) error\(s\) outside any test; see its output."
+  }
+  $rows | test-results
+}
+
+# Parse what `swift test` prints into the test table: XCTest and swift-testing both (a
+# package runs both, one after the other).
+#
+#   XCTest:         Test Case 'MathTests.testAdds' passed (0.004 seconds)
+#                   /path/MathTests.swift:6: error: MathTests.testAddsWrong : XCTAssertEqual failed: ...
+#   swift-testing:  ✔ Test joins() passed after 0.001 seconds.
+#                   ✘ Test joinsWrong() recorded an issue at StringTests.swift:6:29: Expectation failed: ...
+#                   ➜ Test later() skipped: "not yet"
+#
+# A failed test gets its issues as `error` (all of them, with swift-testing's `↳` details),
+# and the file and line of the first. XCTest names come as "MathTests > testAdds";
+# swift-testing ones as printed ("joins()"): it runs tests in parallel and does not say which
+# suite a test is in. Checked with Swift 6.4 on Linux (macOS prints XCTest names as
+# `-[MathTests testAdds]`, also read).
+#
+# The build's messages are on stderr: give it the record of `complete`. A build that failed
+# (no test ran) is an error that shows the end of stderr, never an empty table.
+@search-terms swift "swift test" xctest "swift-testing" "failing tests" "test results"
+@example "Which tests fail, and why" {
+  ^swift test
+  | complete
+  | from swift-test
+  | where status == fail
+  | select name file line error
+}
+export def "from swift-test" []: any -> table {
+  let source = ($in | command-output)
+  let lines = ($source.text | ansi strip | lines)
+  mut rows = []
+  # Issues per test, in order: XCTest errors before its result line, swift-testing ones as
+  # `recorded an issue` lines with their continuation.
+  mut issues = {}
+  mut open = ""
+  for line in $lines {
+    # XCTest: a test's result.
+    let xc = ($line | parse --regex "^Test Case '(?:-\\[(?<s1>\\S+) (?<t1>\\S+)\\]|(?<s2>[^.']+)\\.(?<t2>[^']+))' (?<result>passed|failed|skipped) \\((?<secs>[\\d.]+) seconds\\)")
+    if ($xc | is-not-empty) {
+      let x = $xc.0
+      let name = if ($x.s1 | is-not-empty) { $"($x.s1) > ($x.t1)" } else { $"($x.s2) > ($x.t2)" }
+      $rows ++= [{name: $name, status: (match $x.result { "passed" => "pass", "failed" => "fail", _ => "skip" }), duration: (($x.secs | into float) * 1sec)}]
+      $open = ""
+      continue
+    }
+    # XCTest: an error of a test, before its result.
+    let xe = ($line | parse --regex '^(?<file>[^:]+):(?<line>\d+): error: (?:-\[(?<s1>\S+) (?<t1>\S+)\]|(?<s2>[^. ]+)\.(?<t2>\S+)) : (?<message>.*)$')
+    if ($xe | is-not-empty) {
+      let e = $xe.0
+      let name = if ($e.s1 | is-not-empty) { $"($e.s1) > ($e.t1)" } else { $"($e.s2) > ($e.t2)" }
+      $issues = ($issues | upsert $name (($issues | get --optional $name | default []) | append {file: $e.file, line: $e.line, message: $e.message}))
+      $open = ""
+      continue
+    }
+    # swift-testing: a line that starts with a symbol and "Test" (or "Suite").
+    # (Not the run's own last line: `✘ Test run with 4 tests in 1 suite failed after ...`.)
+    let st = ($line | parse --regex '^\S+ Test (?<name>.+?) (?:(?<result>passed|failed) after (?<secs>[\d.]+) seconds|(?<skipped>skipped)|recorded an (?:issue|known issue) at (?<file>[^:]+):(?<line>\d+):\d+: (?<message>.*))' | where name !~ '^run with \d+ tests?')
+    if ($st | is-not-empty) {
+      let s = $st.0
+      if ($s.message | is-not-empty) or ($s.file | is-not-empty) {
+        $issues = ($issues | upsert $s.name (($issues | get --optional $s.name | default []) | append {file: $s.file, line: $s.line, message: $s.message}))
+        $open = $s.name
+      } else {
+        let status = if ($s.skipped | is-not-empty) { "skip" } else if $s.result == "passed" { "pass" } else { "fail" }
+        $rows ++= [{name: $s.name, status: $status, duration: (if ($s.secs | is-empty) { null } else { ($s.secs | into float) * 1sec })}]
+        $open = ""
+      }
+      continue
+    }
+    # The rest of an issue's message: lines that start no new event.
+    if $open != "" and $line !~ '^(\S+ (Test|Suite) |Test (Case|Suite) |\s+Executed )' and $line != "" {
+      let list = ($issues | get $open)
+      let last = ($list | last)
+      $issues = ($issues | upsert $open ($list | drop 1 | append ($last | update message $"($last.message)\n($line)")))
+      continue
+    }
+    $open = ""
+  }
+  if ($rows | is-empty) {
+    $source | not-the-format "from swift-test" "what swift test prints (lines like `Test Case '...' passed` or `✔ Test name() passed`)" "Did it build? The compiler's errors are on stderr: give from swift-test the whole record of `complete`."
+  }
+  let issues = $issues
+  $rows | each {|row|
+    let found = ($issues | get --optional $row.name | default [])
+    let first = ($found | get 0?)
+    {
+      name: $row.name
+      status: $row.status
+      duration: $row.duration
+      file: ($first.file? | default null)
+      line: ($first.line? | default null)
+      error: (if $row.status == "fail" { if ($found | is-empty) { "failed" } else { $found | get message | str join "\n\n" } } else { null })
+    }
+  } | test-results
+}
+
 # Parse what `cargo test` prints into the test table.
 #
 # For Rust's built-in test harness, as `cargo test` (or `cargo nextest`-less `cargo test

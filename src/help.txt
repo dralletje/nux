@@ -155,7 +155,9 @@ COMMANDS THAT GIVE TABLES   (examples for each: nux help <command>)
                                             and line from its panic. All test parsers
                                             (nux/test-format): nux find "test results"
       ports                                 what listens where: port, pid, name, command, cwd
-      wait-for http://localhost:8888/       wait until a server answers (or: wait-for 5432)
+      wait-for http://localhost:8888/       wait until a server answers: any status, a 404 too
+                                            (--status [200] for only those; wait-for 5432
+                                            for a port). Not curl in a loop.
   `git` is nux's own: only the table commands above. `git` alone lists them, and which of
   them to use instead of reading `^git diff`, `^git rev-parse` and the like. Anything else,
   `git commit` or `git status --short`, is an error: git itself is `^git`, as in
@@ -264,8 +266,9 @@ GOOD TO KNOW
   - A failed call prints the error with its place in the code and exits with status 1.
   - External commands get no terminal, and no stdin unless you pipe a value into them, so
     nothing interactive (`input`, pagers, editors, password prompts). A server or anything
-    else that keeps running does not belong in a call: the call would not end. Start it as a
-    background command of your shell, then `wait-for` it here.
+    else that keeps running does not belong in a call: the call would not end. Start it with
+    your harness's way to run a command in the background (Claude Code: run_in_background),
+    not in nux, then `wait-for` it in a call.
   - Strings: '...' and r#'...'# have no escapes; "..." has \n \t \" \\ and \u{1b} (not
     \u001b). A value in text needs both the $ and the ( ):
     $"hello ($name)". "hello $name" stays as written. Colors out of text: `ansi strip`.

@@ -1,0 +1,40 @@
+
+test/other.test.ts:
+(pass) strings
+
+test/math.test.ts:
+(pass) math > adds
+4 |   test("adds", () => {
+5 |     expect(1 + 2).toBe(3);
+6 |   });
+7 |   describe("nested", () => {
+8 |     test("multiplies wrong", () => {
+9 |       expect(2 * 3).toBe(7);
+                        ^
+error: expect(received).toBe(expected)
+
+Expected: 7
+Received: 6
+
+      at <anonymous> (/work/bun-sample/test/math.test.ts:9:21)
+(fail) math > nested > multiplies wrong
+(skip) math > skipped one
+(todo) math > not written yet
+12 |   test.skip("skipped one", () => {});
+13 |   test.todo("not written yet");
+14 | });
+15 | 
+16 | test("throws", () => {
+17 |   throw new Error("first line\nsecond line");
+                                                ^
+error: first line
+second line
+      at <anonymous> (/work/bun-sample/test/math.test.ts:17:44)
+(fail) throws
+
+ 2 pass
+ 1 skip
+ 1 todo
+ 2 fail
+ 3 expect() calls
+Ran 6 tests across 2 files. [24.00ms]

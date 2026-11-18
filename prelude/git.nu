@@ -180,10 +180,16 @@ def parse-numstat [separator: string, here: list<string>]: string -> table {
 # of a renamed file. Paths are from the current directory: `../` for files above it, as
 # `open` and `git add` read them. An untracked directory is one row, as in `^git status`.
 # A clean working tree is an empty list.
+#
+# --short and --porcelain are taken and change nothing: what they are for, a short form a
+# program can read, is this table.
 @search-terms changed modified untracked
 @example "Files with changes that are not staged yet" { git status | where unstaged != null | get path }
 @example "Is anything staged?" { git status | where staged != null | is-not-empty }
-export def status []: nothing -> table {
+export def status [
+  --short (-s)  # Changes nothing: this table is the short form
+  --porcelain   # Changes nothing: this table is the form for programs
+]: nothing -> table {
   let entries = (run-git [status --porcelain=v1 -z] | split row (char nul) | where $it != "")
   let here = (here)
   mut rows = []

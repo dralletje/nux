@@ -577,6 +577,62 @@ fn from_cargo_test_reads_what_cargo_test_prints() {
     assert!(run.stdout.contains("expected expression, found"), "{}", run.stdout);
 }
 
+/// `from bun-test` reads what `bun test` printed (fixtures from Bun 1.3: the full report;
+/// the same run where Bun listed only failures, as it does with CLAUDECODE=1; and a run with
+/// a syntax error, which must be an error, never an empty table).
+#[test]
+fn from_bun_test_reads_what_bun_test_prints() {
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/bun-test");
+    let record = |name: &str| {
+        format!(
+            "{{stdout: (open --raw '{0}/{name}.stdout.txt'), stderr: (open --raw '{0}/{name}.stderr.txt'), exit_code: 1}}",
+            fixtures.display()
+        )
+    };
+    let run = nux(&[], &format!("{} | from bun-test | each {{|r| $'($r.status) ($r.name) ($r.line)' }} | str join (char nl)", record("full")));
+    assert_eq!(run.status, 0, "{}{}", run.stdout, run.stderr);
+    assert_eq!(
+        run.stdout,
+        "pass strings \npass math > adds \nfail math > nested > multiplies wrong 9\nskip math > skipped one \ntodo math > not written yet \nfail throws 17\n"
+    );
+    let run = nux(&[], &format!("{} | from bun-test | where status == fail | get error | to json --raw", record("full")));
+    assert_eq!(run.stdout, "[\"expect(received).toBe(expected)\\n\\nExpected: 7\\nReceived: 6\",\"first line\\nsecond line\"]\n");
+    // Only failures listed: those rows, and a note that passing ones are missing.
+    let run = nux(&[], &format!("{} | from bun-test | length", record("failing")));
+    assert_eq!(run.stdout, "2\n");
+    assert!(run.stderr.contains("2 of 2 passing tests are not in the table"), "{}", run.stderr);
+    let run = nux(&[], &format!("{} | from bun-test", record("broken")));
+    assert_eq!(run.status, 1);
+    assert!(run.stdout.contains("this is not a bun test report") && run.stdout.contains("Unexpected end of file"), "{}", run.stdout);
+}
+
+/// `from swift-test` reads what `swift test` printed, XCTest and swift-testing both (fixtures
+/// from Swift 6.4 on Linux; a build that failed must be an error, never an empty table).
+#[test]
+fn from_swift_test_reads_what_swift_test_prints() {
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/swift-test");
+    let record = |name: &str| {
+        format!(
+            "{{stdout: (open --raw '{0}/{name}.stdout.txt'), stderr: (open --raw '{0}/{name}.stderr.txt'), exit_code: 1}}",
+            fixtures.display()
+        )
+    };
+    let run = nux(&[], &format!("{} | from swift-test | each {{|r| $'($r.status) ($r.name) ($r.line)' }} | str join (char nl)", record("failing")));
+    assert_eq!(run.status, 0, "{}{}", run.stdout, run.stderr);
+    assert_eq!(
+        run.stdout,
+        "pass MathTests > testAdds \nfail MathTests > testAddsWrong 6\nskip MathTests > testSkipped \nskip later() \npass joins() \nfail topLevel() 10\nfail joinsWrong() 6\n"
+    );
+    let run = nux(&[], &format!("{} | from swift-test | where status == fail | get error | to json --raw", record("failing")));
+    assert_eq!(
+        run.stdout,
+        "[\"XCTAssertEqual failed: (\\\"3\\\") is not equal to (\\\"4\\\") - one and two\",\"Caught error: first line\\nsecond line\",\"Expectation failed: \\\"a\\\" + \\\"b\\\" == \\\"ba\\\"\\n↳ order matters\\n↳ \\\"a\\\" + \\\"b\\\" == \\\"ba\\\" → false\\n↳   \\\"a\\\" + \\\"b\\\" → \\\"ab\\\"\"]\n"
+    );
+    let run = nux(&[], &format!("{} | from swift-test", record("compile-error")));
+    assert_eq!(run.status, 1);
+    assert!(run.stdout.contains("this is not what swift test prints") && run.stdout.contains("Build failed"), "{}", run.stdout);
+}
+
 /// `from tsc` takes the record of `complete`, reads both streams, and fails when the command
 /// failed without a diagnostic: `[]` must mean "no errors", never "tsc did not run". From
 /// `pnpm -r`, the package folder before each line becomes part of the file.
@@ -649,7 +705,28 @@ fn wait_for_a_port() {
     drop(listener);
     let run = nux(&[], &format!("wait-for {port} --timeout 300ms"));
     assert_eq!(run.status, 1);
-    assert!(run.stdout.contains("did not answer within"), "{}", run.stdout);
+    assert!(run.stdout.contains("did not answer as wanted within"), "{}", run.stdout);
+}
+
+/// A URL is up at any answer, also a 404; with --status only at one of those.
+#[test]
+fn wait_for_a_url_and_a_status() {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            let mut stream = stream;
+            let mut buffer = [0u8; 1024];
+            let _ = stream.read(&mut buffer);
+            let _ = stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+        }
+    });
+    let run = nux(&[], &format!("wait-for http://127.0.0.1:{port}/ | get status"));
+    assert_eq!(run.stdout, "404\n", "{}{}", run.stdout, run.stderr);
+    let run = nux(&[], &format!("wait-for http://127.0.0.1:{port}/ --status [200] --timeout 600ms"));
+    assert_eq!(run.status, 1);
+    assert!(run.stdout.contains("last with status 404, not one of 200"), "{}", run.stdout);
 }
 
 #[test]
@@ -818,9 +895,13 @@ fn an_unknown_flag_lists_the_flags_there_are() {
     let run = nux(&[], "ls --al");
     assert!(run.stdout.contains("Hint: Did you mean --all?"), "{}", run.stdout);
     // A subcommand: Nushell names it `status`; the hint finds `git status`.
-    let run = nux(&[], "git status --short");
-    assert!(run.stdout.contains("Hint: `git status` has no flags."), "{}", run.stdout);
-    assert!(run.stdout.contains("For the program `git` itself: `^git status --short`."), "{}", run.stdout);
+    let run = nux(&[], "git status --branch");
+    assert!(run.stdout.contains("The flags of `git status`:"), "{}", run.stdout);
+    assert!(run.stdout.contains("For the program `git` itself: `^git status --branch`."), "{}", run.stdout);
+    // git's own --short and --porcelain are taken: the table is that form.
+    let repo = git_repo("status-short");
+    assert_eq!(nux_in(&repo, "git status --short | length").status, 0);
+    assert_eq!(nux_in(&repo, "git status --porcelain | length").status, 0);
     let run = nux(&[], "git log --oneline");
     assert!(run.stdout.contains("The flags of `git log`:"), "{}", run.stdout);
     assert!(run.stdout.contains("`^git log --oneline`"), "{}", run.stdout);

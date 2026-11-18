@@ -1,0 +1,12 @@
+Building for debugging...
+[Pre-planning 1 / 95]
+[Constructing 181 / 202]
+[29 / 51] Sample
+[39 / 56] SampleTests-product
+[39 / 56] Sample
+[46 / 57] SampleTests-product
+[50 / 58] SampleTests-product
+[54 / 61] SampleTests-test-runner
+[54 / 62] SampleTests-test-runner
+[62 / 62] SampleTests-test-runner
+Build complete! (6.83 secs)

@@ -1,0 +1,39 @@
+Test Suite 'All tests' started at 2026-11-18 01:05:26.256
+Test Suite 'Debug-linux-x86_64.xctest' started at 2026-11-18 01:05:26.258
+Test Suite 'MathTests' started at 2026-11-18 01:05:26.258
+Test Case 'MathTests.testAdds' started at 2026-11-18 01:05:26.258
+Test Case 'MathTests.testAdds' passed (0.004 seconds)
+Test Case 'MathTests.testAddsWrong' started at 2026-11-18 01:05:26.262
+/work/swift-sample/Tests/SampleTests/MathTests.swift:6: error: MathTests.testAddsWrong : XCTAssertEqual failed: ("3") is not equal to ("4") - one and two
+Test Case 'MathTests.testAddsWrong' failed (0.001 seconds)
+Test Case 'MathTests.testSkipped' started at 2026-11-18 01:05:26.263
+/work/swift-sample/Tests/SampleTests/MathTests.swift:7: MathTests.testSkipped : Test skipped - not on Linux
+Test Case 'MathTests.testSkipped' skipped (0.0 seconds)
+Test Suite 'MathTests' failed at 2026-11-18 01:05:26.263
+	 Executed 3 tests, with 1 test skipped and 1 failure (0 unexpected) in 0.005 (0.005) seconds
+Test Suite 'Debug-linux-x86_64.xctest' failed at 2026-11-18 01:05:26.263
+	 Executed 3 tests, with 1 test skipped and 1 failure (0 unexpected) in 0.005 (0.005) seconds
+Test Suite 'All tests' failed at 2026-11-18 01:05:26.263
+	 Executed 3 tests, with 1 test skipped and 1 failure (0 unexpected) in 0.005 (0.005) seconds
+◇ Test run started.
+↳ Testing Library Version: 6.4.2 (288a2328ff84644)
+↳ Target Platform: x86_64-unknown-linux-gnu
+◇ Suite Strings started.
+◇ Test topLevel() started.
+◇ Test joinsWrong() started.
+➜ Test later() skipped: "not yet"
+◇ Test joins() started.
+✔ Test joins() passed after 0.001 seconds.
+✘ Test topLevel() recorded an issue at StringTests.swift:10:2: Caught error: first line
+second line
+✘ Test topLevel() failed after 0.001 seconds with 1 issue.
+✘ Test joinsWrong() recorded an issue at StringTests.swift:6:29: Expectation failed: "a" + "b" == "ba"
+↳ order matters
+↳ "a" + "b" == "ba" → false
+↳   "a" + "b" → "ab"
+✘ Test joinsWrong() failed after 0.001 seconds with 1 issue.
+✘ Suite Strings failed after 0.001 seconds with 1 issue.
+✘ Test run with 4 tests in 1 suite failed after 0.001 seconds with 2 issues.
+Note: Some test targets reported failures:
+  - SampleTests (XCTest)
+  - SampleTests (Swift Testing)
