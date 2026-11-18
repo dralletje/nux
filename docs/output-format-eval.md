@@ -66,6 +66,31 @@ Three things to find out:
 
 1 and 2 are an offline experiment; 3 needs the format in real use.
 
+## A first small run (2026-11-18, subagents, no API key needed)
+
+- Data: 11 real values from the usage log (6 tables, 1 record, 4 lists of texts; 150 to
+  2,500 characters as NUON), 32 questions generated from the data with known answers:
+  lookup 6, count 13, largest 3, nested 1, exact copy 5, exists 4. Generator:
+  `eval/output-format/generate.nu` (the values themselves are not in the repo: they hold
+  paths of private repositories).
+- Formats: NUON, JSON, YAML, v0. Models: Opus and Haiku, one subagent per format and model
+  (8), told to read only (one Read, no code), answers as a JSON object; scored exactly and
+  leniently (outer quotes and spaces removed), with `&gt;` turned back into `>` (the
+  answers came back HTML-escaped, in all eight runs alike).
+- Results: Opus 32/32 in all four formats. Haiku 32/32 with NUON, JSON and YAML; 30/32 with
+  v0. Size (characters, as a stand-in for tokens): NUON 11,378, v0 12,420 (+9%), YAML 12,522,
+  JSON 12,561.
+- Haiku's two misses with v0: a count of rows of a table that v0 printed as `## 0` ... `## 4`
+  (answered 4 for 5 rows: the last heading's number, off by one because headings count from
+  0); and the 3rd item of a list given as the 5th (no clear link to the format).
+- What it says: at these sizes the format hardly matters, as the Improving Agents posts say
+  for small data ("close to 100%"). 32 questions cannot tell 30 from 32 apart with any
+  confidence. One finding is worth acting on anyway: `## n` counting from 0 invites the
+  off-by-one when counting rows. Candidates: say the number of rows above the first heading
+  (`5 rows`), or count headings from 1 (but `get` counts from 0).
+- For the full run: values grown towards 10 KiB (where formats should differ), more
+  questions per kind (≥ 30 each), and the counts read from the output, not guessed.
+
 ## What others found
 
 Improving Agents (improvingagents.com) compared formats in three posts. What they found,
