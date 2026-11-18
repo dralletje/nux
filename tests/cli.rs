@@ -935,6 +935,25 @@ fn edit_file_says_where_the_text_differs() {
     assert!(run.stderr.contains("edit 1 changes nothing"), "{}", run.stderr);
 }
 
+/// edit-file with a `path` column: several files, all or nothing; and --regex.
+#[test]
+fn edit_file_on_several_files_and_with_a_regex() {
+    let dir = scratch().join(format!("edit-files-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("a.ts"), "import x from \"./x\";\n").unwrap();
+    std::fs::write(dir.join("b.ts"), "import y from \"./x\";\n").unwrap();
+    std::fs::write(dir.join("c.ts"), "console.log(1)\nconsole.log(two)\n").unwrap();
+    let run = nux_in(&dir, "[[path old new]; [a.ts '\"./x\"' '\"./y\"'] [b.ts '\"./x\"' '\"./y\"']] | edit-file | get replacements");
+    assert_eq!(run.stdout, "[1,1]\n", "{}", run.stdout);
+    // One edit that does not apply: no file is written.
+    let run = nux_in(&dir, "[[path old new]; [a.ts './y' './z'] [b.ts 'nope' 'z']] | edit-file");
+    assert_eq!(run.status, 1);
+    assert_eq!(std::fs::read_to_string(dir.join("a.ts")).unwrap(), "import x from \"./y\";\n");
+    let run = nux_in(&dir, "edit-file c.ts --regex --all 'console\\.log\\((.*)\\)' 'logger.debug($1)' | get replacements");
+    assert_eq!(run.stdout, "2\n", "{}", run.stdout);
+    assert_eq!(std::fs::read_to_string(dir.join("c.ts")).unwrap(), "logger.debug(1)\nlogger.debug(two)\n");
+}
+
 /// search: lines before or after, only what matched, grep's text, and globs as paths.
 #[test]
 fn search_has_grep_s_ways_too() {
@@ -968,6 +987,8 @@ fn search_has_grep_s_ways_too() {
     assert_eq!(run("search 'find me' src/*.md | get file"), "[\"src/b.md\"]\n");
     let missing = nux_in(&dir, "search x src/*.rs");
     assert!(missing.stdout.contains("search: nothing matches src/*.rs"), "{}", missing.stdout);
+    // Text piped in is searched instead of files.
+    assert_eq!(run("\"one\\nfind me\\nthree\" | search 'find' --context 1 | to grep"), "(input)-1-one\n(input):2:find me\n(input)-3-three\n");
 }
 
 /// `nux help` finds the commands of modules that are loaded only with `use`.
@@ -1015,6 +1036,14 @@ fn common_mistakes_get_the_way_to_write_it() {
     assert!(run.contains("`open --raw notes.md`"), "{run}");
     // Other input type errors: no Markdown hint.
     assert!(!hint("[1 2] | lines").contains("Markdown"));
+
+    // Nushell's own pipelines.
+    assert!(hint("[1 2] | do {|r| $r + 1 }").contains("`do` does not give its input"));
+    assert!(hint("[[index]; [1] [20]] | where index < 12 or (index > 15)").contains("write `$it.index`"));
+    let inside = scratch().join(format!("rm-inside-{}", std::process::id()));
+    std::fs::create_dir_all(&inside).unwrap();
+    assert!(hint(&format!("cd '{0}'; rm -r '{0}'", inside.display())).contains("`cd` somewhere else first"));
+    assert!(hint("\"a\\nb\" | where $it =~ a").contains("That is text, not a list"));
 
     let run = nux(&[], "[a b c d] | range 1..2");
     assert_eq!((run.status, run.stdout.as_str()), (0, "[b,c]\n"), "{}", run.stderr);

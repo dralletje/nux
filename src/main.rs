@@ -11,6 +11,7 @@ mod paths;
 mod prelude;
 mod readable;
 mod rewrite;
+mod servers;
 mod usage_log;
 
 use std::{
@@ -180,7 +181,10 @@ fn main() {
     let mut reply = match command {
         Some("help") => nu.help(&words),
         Some("find") => nu.find(&words.join(" ")),
-        _ => nu.run_code(&code),
+        _ => {
+            servers::watch(&code);
+            nu.run_code(&code)
+        }
     };
     if let Some(problem) = &nu.prelude_problem {
         let warning = format!("Warning: nux's own commands (py, js, search, git, ...) are missing, because the prelude did not load:\n{problem}");

@@ -2,7 +2,8 @@ Run commands and Nushell code. Every call is a fresh Nushell with nux's own comm
 
 RUN SOMETHING
   Code goes in on stdin, with a quoted heredoc: nothing in it needs escaping for the shell.
-      nux <<'NU'
+  Say why you run it, in a few words, with -r (see below).
+      nux -r 'find the large files' <<'NU'
       let big = (ls **/* | where size > 1mb)
       $big
       | sort-by size --reverse
@@ -122,7 +123,9 @@ COMMANDS THAT GIVE TABLES   (examples for each: nux help <command>)
                                             vars. With --rewrite '...' each row also gets its
                                             replacement; look, filter, then: | ast-apply.
                                             Only what the pattern names is replaced: the `;`
-                                            after `return $X` stays (column `trailing`)
+                                            after `return $X` stays (column `trailing`).
+                                            For a change across many files, not a regex:
+          ast-find -l ts 'expect($A).toBe($B)' test --rewrite 'assert.equal($A, $B)' | ast-apply
       git log --since "1 week ago"          commits: hash, date, author, subject, ... (--files)
       git status                            changed files: path, staged, unstaged
       git diff                              what changed per file: path, added, deleted, versions
@@ -152,7 +155,9 @@ COMMANDS THAT GIVE TABLES   (examples for each: nux help <command>)
                                             output instead, without the option.)
       ^cargo test | complete | from cargo-test
                                             the same table for Rust's tests; a failure's file
-                                            and line from its panic. All test parsers
+                                            and line from its panic. Also from bun-test (bun
+                                            writes its report to stderr: give it all of
+                                            `complete`) and from swift-test. All of them
                                             (nux/test-format): nux find "test results"
       ports                                 what listens where: port, pid, name, command, cwd
       wait-for http://localhost:8888/       wait until a server answers: any status, a 404 too
@@ -287,6 +292,8 @@ GOOD TO KNOW
   - `where name =~ 'x'` fails on a row where name is null: `where name != null and name =~ 'x'`.
   - `ls **/*` leaves out hidden files (`--all` for them); `glob **/*` has them, .git too:
     glob **/*.rs --exclude [**/target/** **/.git/**]
+    glob gives absolute paths, folders too. Files only, from here: glob **/*.ts --no-dir |
+    path relative-to (pwd). Several patterns: braces, glob {src,test}/**/*.ts.
     Nushell's `find` filters a value; it does not look for files.
   - Columns of text from a command, as a table: ^ps -o pid,comm | detect columns
     (--guess when a header has spaces in it, as in ^df -h)

@@ -142,6 +142,7 @@ export def js [
 @example "With two lines around each match (the column `hit` is true for the matching lines)" { search panic --context 2 }
 @example "To read, as grep prints it" { search 'fn main' src --after-context 3 | where file !~ test | to grep }
 @example "Only what matched, not the whole line" { search 'TS\d{4}' build.log --only-matching | get text | uniq --count }
+@example "In text you have, not a file (`file` is \"(input)\")" { ^git show HEAD~3:src/router.ts | search 'createAccount' --context 5 | to grep }
 export def search [
   pattern: string              # Regular expression (Rust syntax); plain text with --literal
   ...paths: path               # Files or directories to search (default: the current directory); `*` globs
@@ -154,7 +155,9 @@ export def search [
   --only-matching (-o)         # One row per match, `text` only what matched (not with lines around)
   --files (-l)                 # One row per file instead: file, matches (grep's -c and -l)
   --all (-a)                   # Also search hidden files and files that .gitignore excludes
-]: nothing -> table {
+]: [nothing -> table, string -> table] {
+  # Text piped in is searched instead of files (`file` is "(input)").
+  let input = $in
   if (which rg | is-empty) {
     error make {msg: "search needs ripgrep (`rg`), which is not installed"}
   }
@@ -190,7 +193,12 @@ export def search [
       }
     } | flatten
   }
-  let run = (^rg ...$options --regexp $pattern -- ...$places | complete)
+  let from_input = ($input != null and ($paths | is-empty))
+  let run = if $from_input {
+    $input | ^rg ...$options --regexp $pattern -- - | complete
+  } else {
+    ^rg ...$options --regexp $pattern -- ...$places | complete
+  }
   # ripgrep exits with 1 when nothing matched, with 2 when something went wrong.
   if $run.exit_code > 1 {
     error make {
@@ -202,7 +210,7 @@ export def search [
   let cut = {|text| if ($text | str length --grapheme-clusters) > 300 { ($text | str substring --grapheme-clusters 0..<300) + "…" } else { $text } }
   let rows = (
     $run.stdout | from json --objects | where type in ["match" "context"] | each {|event|
-      let file = ($event.data.path.text? | default "(unreadable name)" | str replace --regex '^\./' '')
+      let file = if $from_input { "(input)" } else { $event.data.path.text? | default "(unreadable name)" | str replace --regex '^\./' '' }
       if $only_matching {
         # One row per match on the line.
         $event.data.submatches | each {|sub|

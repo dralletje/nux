@@ -48,13 +48,33 @@ sections. This file keeps what became of each item, so that it can be picked up 
   2026-11-18 while rendering logged values for the format runs (they now leave such values
   out). To report to Nushell (0.117); nux could escape them in the meantime.
 
+## Done later (2026-11-18)
+
+- **1.4 Kept results**: a result too large to print that is already kept says that name
+  instead of keeping a copy. (3.1, the file path, not done: see below.)
+- **2.5** `git status --short` and `--porcelain` give the table.
+- **2.10** Hints for `| do {|r| ...}`, a bare column after `or (` in `where`, `rm` of the
+  folder the call is in, and a table command on text.
+- **3.5** `search` on text piped in (`file` is "(input)").
+- **4.2** `from bun-test` and `from swift-test` in `nux/test-format` (with `from tap`,
+  `from node-26-test`, `from cargo-test`).
+- **4.5** `edit-file` with a `path` column (several files, all or nothing) and `--regex`.
+- **4.6** In the manual: `glob --no-dir` for files only, `path relative-to (pwd)`, braces for
+  several patterns. Not a `glob` of nux's own: it would change Nushell's command.
+- **4.7** `wait-for --status [200]`. Any answer, a 404 too, counted as up already; the
+  manual says so now.
+- **4.8** After 30 s, a call whose code looks like it starts a dev server says so on stderr,
+  and to use the harness's background mode. Not a `spawn` (nor `job spawn`): starting things
+  in the background is the harness's work.
+- **Part 5** in the manual: `-r` in the first example, `ast-find --rewrite` for changes
+  across files, the test parsers.
+- Also: `show` and the sample of a large result print values the way a call does
+  (`to readable`).
+
 ## Open: a decision first
 
-- **1.4, 3.1 Kept results.** Not re-keeping a value that came from `kept` is a clear fix.
-  The file path is for the harness's Read tool (paging with line numbers, without another
-  call); that only helps when a string is written as plain text, not NUON. Undecided whether
-  the path is worth it.
-- **3.5 `search` on text from stdin** (a variable, `^git show` output). Not done yet.
+- **3.1 The file path of a kept result**, for the harness's Read tool. Only of use when text
+  is written as plain text, not NUON. Undecided.
 - **2.2 Markdown.** `open x.md` gives a table of the file's elements (heading, paragraph,
   ...: `element`, `content`, `content_span`), from Nushell's `from md`. Done: the hint and the
   manual. Not done: making `open` give text (hiding `from md`), which goes against Nushell.
@@ -65,24 +85,14 @@ sections. This file keeps what became of each item, so that it can be picked up 
 - **1.7 A stopped call keeps nothing.** The log now has its output (1.1). Keeping its
   variables means reading them while the code still runs on another thread: harder.
   Streaming `show` as it happens is the first step.
-- **2.5 `git status --short`.** The hint is right already; taking `--short`/`--porcelain` and
-  giving the same table saves the round trip.
 - **2.9 A raw string as a statement before `| ^git commit`.** A better parse error, or the
   manual's "bind it with `let` first".
-- **2.10 Small hints**: `| do {|r| ...}`, `where index < 12` (a column in `where` needs
-  `$it.` or a closure), `rm` of the folder you are in, `kept result-N | where` on a string.
-- **4.2 `from bun-test`, `complete --merged`.** bun writes its report to stderr; a parser
-  saves the regexes agents write per call. `from eslint` for `--format json`.
+- **4.2 `complete --merged`** (stdout and stderr in order), `from eslint` for `--format json`.
 - **4.4 git tables**: `git show <rev>:<path>`, `git show <rev>`, `git log -5`/`--oneline`
   spellings, `short` in `git info`, `status`/`from` (renames) in `git diff`, untracked files
   expanded. In that order of use.
-- **4.5 edit-file**: a table with a `path` column (several files, all or nothing); `--regex`.
-- **4.6 `glob --files --relative`**, several patterns.
-- **4.7 `wait-for --status [...]`** (404 counts as up for a dev server), `wait-for --gone`.
-- **4.8 A server in the foreground**: a warning on stderr after ~30 s for `dev`/`serve`/
-  `vite`. Not a `spawn` command: nux ends what a call started, on purpose.
-- **Part 5, the manual**: each item is minutes. `-r` in the first example (6% of calls
-  give a reason).
+- **4.7 `wait-for --gone`** (a process to end).
+- **ast-grep** lays out a multi-line `$$$` hole its own way (tests/ast-rewrite/README.md).
 
 ## Would not do
 
@@ -91,28 +101,14 @@ sections. This file keeps what became of each item, so that it can be picked up 
   way to read files is not what is missing.
 - **4.5 `edit-lines`, `--show`, `with-edit`.** The same: the harness edits files.
 - **4.3 `git commit` as a command.** `$message | ^git commit -F -` works; the failure seen was
-  `-q` hiding git's message. Maybe later, as part of 4.4.
+  `-q` hiding git's message, and the follow-up call to see the commit is gone now that every
+  statement's output is shown (git prints `[branch abc1234] subject` and the files changed).
 - **4.9 `nux -C`, a project env file.** `cd` works; a file that changes every call goes
   against "nothing carries over".
-- **4.2 `from swift-test`**: one project's.
 - **4.10** mostly: `count-by`, `with-tmp`, `save --json`, `str truncate` are each one line of
   Nushell. `from diff` (a .diff file as `git diff --lines` rows) is the one worth a look.
 
 ## A format for agents (3.3)
 
-NUON is made to be read back by Nushell; what nux prints is read by a model, and only by a
-model: when the data is needed again, `kept` gives it back with its types. So the printed
-form can give up being parseable, and be made for reading:
-
-- a list of strings one per line; a multi-line string as an indented block, no escapes;
-- strings without quotes where nothing else could be meant (quotes only around what would
-  read as a number, a bool, null, or has leading/trailing spaces);
-- a table as a header and aligned rows (or `|`-separated), columns written once;
-- durations, sizes and dates as people write them (`1min 28s`, `3.4 MB`, `2026-11-17 09:12`);
-- nesting by indentation, records as `key: value` lines.
-
-Something close exists: TOON ("Token-Oriented Object Notation", 2025), YAML-like with
-tables as a header and CSV rows, made to save tokens for LLM input. To decide: take the
-logged results of a day (`nux-log`, `text`), print them as NUON and as a candidate format,
-compare length in tokens, and have agents answer questions about the same results in both
-forms.
+Done as "v0", nux's default since 2026-11-17: what it is, why, and the runs that tested
+it are in `docs/output-format-eval.md` (src/readable.rs; `NUX_FORMAT=nuon` for NUON).
