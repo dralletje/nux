@@ -1,9 +1,32 @@
 # nux
 
 Nushell for agents, as one native binary. Code goes in on stdin; every call runs in a fresh
-Nushell with nux's own commands (the prelude) loaded; the result comes back as NUON, and
-external commands fail the call when they fail. `nux help` is the manual, written for the
-agent using it.
+Nushell with nux's own commands (the prelude) loaded; the value of every statement comes
+back in a form made for reading (tables as Markdown, records as `key: value` lines; NUON
+with `NUX_FORMAT=nuon`), and external commands fail the call when they fail. `nux help` is
+the manual, written for the agent using it.
+
+A call, in this repository:
+
+```
+nux <<'NU'
+open Cargo.toml | get package.version
+ls src | where size > 10kb | select name size
+NU
+```
+
+```
+── line 1: open Cargo.toml | get package.version
+0.2.0
+── line 2: ls src | where size > 10kb | select name size
+| name | size |
+|---|---|
+| src/engine.rs | 24.17kB |
+| src/format.rs | 11.893kB |
+| src/help.txt | 20.387kB |
+| src/readable.rs | 15.499kB |
+| src/rewrite.rs | 12.499kB |
+```
 
 It builds Nushell 0.117 in as libraries, with its prelude and plugin support, so it needs
 no `nu` on the machine. It has no sessions: nothing carries over between calls, except what
@@ -57,6 +80,23 @@ Skip any step whose tool is already there and new enough.
    run without a missing-tool error; `[1 2] | js 'data.length'` and `[1 2] | py 'len(data)'`
    give 2. Report what is installed, with versions, and anything that failed.
 ```
+
+## Configuring
+
+Nothing needs configuring. What can be:
+
+- `~/.config/nux/prelude.nu`: runs at the start of every call, so its `def`s and `$env` are
+  there in each one.
+- Modules of your own, loaded in a call with `use`: `use home/tools` is
+  `~/.config/nux/tools.nu` (or `tools/mod.nu`), and `use project/checks` is `.nu/checks.nu`
+  in the project (the nearest folder upwards with a `.git`).
+- `XDG_CONFIG_HOME`: when it is set, `$XDG_CONFIG_HOME/nux` instead of `~/.config/nux`.
+- `NUX_FORMAT=nuon`: every result as NUON, not in the form made for reading.
+- `NUX_NODE`: the `node` that `js` runs, when the one on PATH is older than Node 26.
+
+nux keeps its own files in two places: `/tmp/nux-<uid>` (values kept for a next call, and the
+runners of `py` and `js`) and `~/.local/state/nux/log` (every call, a file per day;
+`nux-log` reads it; `NUX_LOG_DIR` puts it elsewhere).
 
 ## Telling agents to use it
 
