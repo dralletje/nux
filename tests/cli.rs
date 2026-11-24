@@ -64,6 +64,30 @@ fn help_is_the_one_manual() {
     assert!(format!("{}{}", guide.stdout, guide.stderr).contains("Unknown command"));
 }
 
+/// Every session reads all of `nux help`: at most 12 KB, and still naming what agents use most
+/// in the nux log, every module, and the user's own prelude (docs/compact-help.md).
+#[test]
+fn help_is_compact_and_keeps_what_agents_use() {
+    let source = include_str!("../src/help.txt");
+    assert!(source.len() <= 12_288, "src/help.txt is {} bytes", source.len());
+    assert!(source.contains("{kept_dir}") && source.contains("{log_dir}"));
+    for line in source.lines() {
+        assert!(line.chars().count() <= 92, "too wide: {line}");
+    }
+    let help = nux(&["help"], "").stdout;
+    for part in [
+        "search", "--glob", "--context", "to grep", "complete", "^git", "glob ", "git log",
+        "git status", "git diff", "git hunks", "git info", "git add", "git show-file", "kept",
+        "edit-file", "with-env", "from tsc", "from json", "to md", "group-by", "from tap",
+        "from cargo-test", "from bun-test", "ports", "wait-for url", "timeout", "| show",
+        "check-exit", "try-nu", "nux help py", "nux help js", "cookie-jar", "capped",
+        "nux/pnpm", "into sqlite", "prelude.nu", "use home/", "use project/", "NUX_FORMAT",
+        "-r '", "nux find", "nux-log",
+    ] {
+        assert!(help.contains(part), "nux help lacks {part}");
+    }
+}
+
 /// nux's default form, made for reading (src/readable.rs, "v0" in docs/output-format-eval.md).
 #[test]
 fn values_are_printed_for_reading() {
