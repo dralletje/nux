@@ -98,6 +98,7 @@ COMMANDS THAT GIVE TABLES   (examples for each: nux help <command>)
       use nux/capped                        a command under a hard memory and time limit
       use nux/pnpm                          pnpm with tables: a script in every package,
                                             packages, outdated, why
+      use nux/npm                           the registry: npm versions, npm info, npm files
 
 OTHER TOOLS ALREADY SPEAK JSON
       ^docker ps --format json | from json --objects        (one JSON object per line)

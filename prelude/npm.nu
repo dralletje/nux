@@ -43,7 +43,15 @@ export def versions [
   let times = ($found.time? | default {})
   let tags = ($found | get -o dist-tags | default {} | transpose tag version)
   # The plain `deprecated` field is only the latest version's: per version, a range.
-  let deprecations = (npm-json view $"($package)@>=0.0.0-0" version deprecated --json | append [] | flatten)
+  # When no version is deprecated, npm gives the versions as plain strings instead.
+  let deprecations = (
+    npm-json view $"($package)@>=0.0.0-0" version deprecated --json
+    | append []
+    | flatten
+    | each {|entry|
+        if ($entry | describe) == "string" { {version: $entry, deprecated: null} } else { $entry }
+      }
+  )
   $names | each {|version|
     {
       version: $version

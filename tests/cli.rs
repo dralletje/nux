@@ -81,7 +81,7 @@ fn help_is_compact_and_keeps_what_agents_use() {
         "edit-file", "with-env", "from tsc", "from json", "to md", "group-by", "from tap",
         "from cargo-test", "from bun-test", "ports", "wait-for url", "timeout", "| show",
         "check-exit", "try-nu", "nux help py", "nux help js", "cookie-jar", "capped",
-        "nux/pnpm", "into sqlite", "prelude.nu", "use home/", "use project/", "NUX_FORMAT",
+        "nux/pnpm", "nux/npm", "into sqlite", "prelude.nu", "use home/", "use project/", "NUX_FORMAT",
         "-r '", "nux find", "nux-log",
     ] {
         assert!(help.contains(part), "nux help lacks {part}");
@@ -963,6 +963,10 @@ case "$*" in
     printf '%s' '{"time":{"created":"2020-01-01T00:00:00.000Z","modified":"2020-01-01T00:00:00.000Z","1.0.0":"2020-01-01T00:00:00.000Z"},"dist-tags":{"latest":"1.0.0"},"versions":"1.0.0"}' ;;
   "view solo@>=0.0.0-0 version deprecated --json")
     printf '%s' '{"version":"1.0.0"}' ;;
+  "view fresh time dist-tags versions --json")
+    printf '%s' '{"time":{"1.0.0":"2021-01-01T00:00:00.000Z","1.1.0":"2021-02-01T00:00:00.000Z"},"dist-tags":{"latest":"1.1.0"},"versions":["1.0.0","1.1.0"]}' ;;
+  "view fresh@>=0.0.0-0 version deprecated --json")
+    printf '%s' '["1.0.0","1.1.0"]' ;;
   "view left-pad@1 --json")
     printf '%s' '[{"name":"left-pad","version":"1.0.0","_id":"left-pad@1.0.0"},{"name":"left-pad","version":"1.3.0","_id":"left-pad@1.3.0","peerDependencies":{"x":"^1"}}]' ;;
   "view left-pad@1.3.0 --json")
@@ -1010,6 +1014,9 @@ fn npm_versions_gives_a_row_per_version() {
     );
     let run = with_npm("npm versions solo | to nuon");
     assert_eq!(run.stdout, "[[version, published, tags, deprecated]; [\"1.0.0\", 2020-01-01T00:00:00+00:00, [latest], null]]\n", "{}", run.stderr);
+    // No version deprecated: npm gives the versions as plain strings (react, live).
+    let run = with_npm("npm versions fresh | get deprecated | to nuon");
+    assert_eq!(run.stdout, "[null, null]\n", "{}{}", run.stdout, run.stderr);
 }
 
 /// `npm info`: one record; a range is its highest version; without npm's `_` fields and the
@@ -1050,6 +1057,20 @@ fn npm_errors_say_what_npm_said() {
         assert_eq!(run.status, 1, "{code}: {}", run.stdout);
         assert!(run.stdout.contains(said), "{code}: {}", run.stdout);
     }
+}
+
+/// nux/npm's tables give every column in every row (AGENTS.md), as
+/// `table_commands_give_every_column_in_every_row` checks for the prelude's.
+#[test]
+fn npm_tables_give_every_column_in_every_row() {
+    let run = with_npm(
+        "{versions: (npm versions left-pad), files: (npm files left-pad@1.3.0)}
+| transpose command rows
+| where {|t| ($t.rows | each { columns | str join ',' } | uniq | length) > 1 }
+| get command
+| to nuon",
+    );
+    assert_eq!((run.status, run.stdout.as_str()), (0, "[]\n"), "{}{}", run.stdout, run.stderr);
 }
 
 /// A URL is up at any answer, also a 404; with --status only at one of those.
