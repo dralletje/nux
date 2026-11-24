@@ -88,6 +88,32 @@ fn help_is_compact_and_keeps_what_agents_use() {
     }
 }
 
+/// What the compact help says matches what nux does, and the pitfalls that fail without an
+/// error stay in it (the review of the compact help, 2026-11-24).
+#[test]
+fn help_says_what_nux_does() {
+    let help = nux(&["help"], "").stdout;
+    for part in [
+        "inside a table, record or list", // top-level text is never quoted
+        "list of texts",                  // [1 2 3] is NUON, not `3 items`
+        "durations, sizes",
+        "--stable 5sec",                  // --stable takes a duration
+        "| complete } | from tap",
+        "name, size, kept",               // the columns of `kept`
+        "unless you pipe",                // externals get stdin when piped
+        "\"hello $name\" stays as written",
+        "detect columns",
+        "column `trailing`",
+        "--exclude",
+        "glob '{src,test}/**/*.ts'", // braces need quotes, or it is a parse error
+        "not by a relative path",
+    ] {
+        assert!(help.contains(part), "nux help lacks {part}");
+    }
+    // `git status --short` is a table in nux (prelude/git.nu), not an error.
+    assert!(!help.contains("`git status --short`) is an error"));
+}
+
 /// `nux help capped` is what an agent reads: what it does and returns, not "this file".
 #[test]
 fn help_capped_says_what_it_returns() {

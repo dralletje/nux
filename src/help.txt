@@ -24,10 +24,10 @@ WHAT YOU GET BACK
   let, def, use, for, print and cd give none; `| ignore` drops one.
     table    Markdown (header every 20 rows); wide or nested: `12 rows`, `## 0`, `## 1`, ...
     record   `key: value` lines
-    list     `12 items`, one per line
-    text     as is; in "..." (JSON escapes) only when it could be misread: empty, padded,
-             a number, true/false/null, a newline
-    sizes    `~4.512MB`, `~1min 28sec` (~: rounded)
+    list of texts  `12 items`, one per line
+    text     as is; inside a table, record or list in "..." (JSON escapes) when it could
+             be misread: empty, padded, a number, true/false/null, a newline
+    durations, sizes  `~1min 28sec`, `~4.512MB` (~: rounded)
     other    NUON. Exact types: `| to nuon`; JSON: `| to json --raw`; NUX_FORMAT=nuon: all
   An external command: its output. When it fails: all of it, "exited with code N", and the
   call stops. Inside a loop, closure or def: `^cmd | complete | check-exit "cmd"` for its
@@ -38,7 +38,7 @@ WHAT YOU GET BACK
 
 NOTHING CARRIES OVER, EXCEPT WHAT IS KEPT
   Variables, defs and cd end with the call: do in one call what belongs together.
-      kept                          what is kept: name, size, when
+      kept                          what is kept: name, size, kept
       kept result-3 | first 20      a result too large to print (over 10 KiB)
       let big = (kept big)          a variable of a call that FAILED
       $rows | kept --save rows      keep a value yourself; later: kept rows
@@ -46,7 +46,8 @@ NOTHING CARRIES OVER, EXCEPT WHAT IS KEPT
 
 YOUR OWN COMMANDS
   ~/.config/nux/prelude.nu runs at the start of every call. Modules: `use home/tools`
-  (~/.config/nux/tools.nu), `use project/checks` (.nu/checks.nu at the git root).
+  (~/.config/nux/tools.nu), `use project/checks` (.nu/checks.nu at the git root); inside
+  them, use each other by those names, not by a relative path.
   try-nu 'code' runs code apart, giving {value, error, printed, stderr}: nux help try-nu
 
 COMMANDS THAT GIVE TABLES   (examples for each: nux help <command>)
@@ -57,7 +58,9 @@ COMMANDS THAT GIVE TABLES   (examples for each: nux help <command>)
                                             rows as grep prints them, to read
       ast-find --lang ts 'console.log($$$A)' src
                                             code by structure (ast-grep); with --rewrite
-                                            '...', then | ast-apply: a change in many files
+                                            '...', then | ast-apply: a change in many files.
+                                            Only what the pattern names is replaced: the `;`
+                                            after `return $X` stays (column `trailing`)
       git log --since "1 week ago"          commits: hash, short, date, author, subject
                                             (--files, --body, --oneline, --range main..HEAD)
       git status                            changed files: path, staged, unstaged
@@ -69,7 +72,7 @@ COMMANDS THAT GIVE TABLES   (examples for each: nux help <command>)
       git info                              root, branch, head, upstream, ahead, behind, ...
       git show-file HEAD~3 src/a.ts         a file's text at a commit (paths from here)
       git status | where ... | git add      stage the rows; gives git status after
-  `git` is only these; anything else (`git commit`, `git status --short`) is an error: git
+  `git` is only these; anything else (`git commit`, `git push`) is an error: git
   itself is `^git commit -m "..."`. pnpm, docker and the rest work as in any shell.
       ^pnpm typecheck | complete | from tsc
                                             TypeScript errors: file, line, column, code,
@@ -77,14 +80,16 @@ COMMANDS THAT GIVE TABLES   (examples for each: nux help <command>)
       ^node --test --test-reporter=tap | complete | from tap
                                             test results: name, status, file, line, error.
                                             Package script: with-env {NODE_OPTIONS:
-                                            "--test-reporter=tap"} { ^pnpm test | complete }
+                                            "--test-reporter=tap"} { ^pnpm test
+                                            | complete } | from tap
       ^cargo test | complete | from cargo-test
                                             the same for from bun-test, from swift-test,
                                             from node-26-test: nux find "test results"
       ports                                 what listens: port, pid, name, command, cwd
       wait-for url http://localhost:8888/   until it answers (--status [200]: only those);
                                             also wait-for port 5432, wait-for pid 123,
-                                            wait-for file out.log --contains Done (--stable)
+                                            wait-for file out.log --contains Done, or
+                                            --stable 5sec: until it stops growing
       timeout 2min { wait-for url ... }     the one time limit, around any code
       edit-file <path> <old> <new>          replace text found exactly once (a table of
                                             old/new: several edits, all or nothing)
@@ -143,19 +148,22 @@ LOOK THINGS UP   (Nushell changes between versions; check before guessing)
       nux help <command>            usage, flags and examples: nux help str replace
 
 GOOD TO KNOW
-  - No terminal and no stdin: nothing interactive. A server does not belong in a call:
-    start it in the background (Claude Code: run_in_background), then, in a call,
-    timeout 1min { wait-for url ... }.
+  - No terminal, and no stdin unless you pipe a value in: nothing interactive. A server
+    does not belong in a call: start it in the background (Claude Code:
+    run_in_background), then, in a call, timeout 1min { wait-for url ... }.
   - '...' and r#'...'# have no escapes; "..." has \n \t \" \\ \u{1b}. A value in text:
-    $"hello ($name)". In $"..." every ( ) runs as code: \( \) for text. A regex goes in
-    '...'. A ' in text: "it's" or r#'it's'#. A commit message: always a raw string,
-    r#'Fix the footer (see notes)'# | ^git commit -F -. Colors out of text: ansi strip.
+    $"hello ($name)"; "hello $name" stays as written. In $"..." every ( ) runs as code:
+    \( \) for text. A regex goes in '...'. A ' in text: "it's" or r#'it's'#. A commit
+    message: always a raw string, r#'Fix the footer (see notes)'# | ^git commit -F -.
+    Colors out of text: ansi strip.
   - A flag with a value from a variable is one string: ^mysql $"--password=($pw)" db.
     External commands see $env.X and with-env, not `let` variables.
-  - A bare word like 91778bb or 10mb is a number or size: quote a hash, "91778bb".
+  - A hash like 91778bb as a bare word is a size or a command: quote it, "91778bb".
   - `where name =~ 'x'` fails on a null name: `where name != null and name =~ 'x'`.
   - `glob **/*.ts --no-dir | path relative-to (pwd)`: files only, from here (glob has
-    hidden files and .git; ls **/* has not). `find` filters a value, not files.
+    hidden files and .git; ls **/* has not). glob '{src,test}/**/*.ts' --exclude
+    [**/target/**]. `find` filters a value, not files.
+  - Text in columns, as a table: ^ps -o pid,comm | detect columns (--guess for ^df -h).
   - `http post -t application/json <url> {key: value}`: the whole MIME type.
   - `job spawn { ... }` lasts until the call ends; `job send 0` there, `job recv` here.
 
