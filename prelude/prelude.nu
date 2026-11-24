@@ -13,7 +13,8 @@ export use nux/ast *
 export use nux/output *
 export use nux/usage *
 export use nux/edit-file
-# Not loaded here, only with `use` (listed in `nux help`): nux/capped, nux/cookie-jar.
+# Not loaded here, only with `use` (listed in `nux help`): nux/capped, nux/cookie-jar,
+# nux/pnpm.
 
 # The folder the runners of py and js are written to (src/prelude.rs).
 use nux/runners RUNNERS

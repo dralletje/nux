@@ -239,7 +239,9 @@ export def "from tap" []: any -> table {
   let source = ($in | command-output)
   let text = $source.text
   if $text !~ '(?m)^\s*(TAP version \d+|1\.\.\d+|(not )?ok\b)' {
-    let hint = if $text =~ '(?m)^\s*[✔✖] .* \([\d.]+ms\)' { "It is what Node 20 and newer print by default. Ask for TAP: --test-reporter=tap, or for a package script NODE_OPTIONS (see: help from tap). Or parse this format: from node-26-test." } else { "Did the tests run at all? A build step before them may have failed." }
+    let hint = if $text =~ '(?m)^\S+ [\w:.-]+: (TAP version \d+|(not )?ok\b)' {
+      "It is TAP from `pnpm -r`, with each package in front of its lines. Per package, after `use nux/pnpm`: pnpm run-recursive test | each {|package| $package.output | from tap | insert package $package.package } | flatten (or ... | complete | pnpm by-package for a run you have)"
+    } else if $text =~ '(?m)^\s*[✔✖] .* \([\d.]+ms\)' { "It is what Node 20 and newer print by default. Ask for TAP: --test-reporter=tap, or for a package script NODE_OPTIONS (see: help from tap). Or parse this format: from node-26-test." } else { "Did the tests run at all? A build step before them may have failed." }
     $source | not-the-format "from tap" "TAP (lines like `ok 1 - name`)" $hint
   }
   let lines = ($text | lines)

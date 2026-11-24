@@ -197,6 +197,8 @@ COMMANDS THAT GIVE TABLES   (examples for each: nux help <command>)
                                             cookie-jar new, cookie-jar http, ...
       use nux/capped                        an external command under a hard memory and time
                                             limit: capped --mem 1GB --time 1min pnpm build
+      use nux/pnpm                          pnpm with tables back: a script in every package,
+                                            the packages, outdated, why: nux help pnpm
 
 OTHER TOOLS ALREADY SPEAK JSON
   Ask for it and parse it:

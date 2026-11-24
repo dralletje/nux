@@ -786,6 +786,101 @@ fn timeout_stops_a_block() {
     assert!(left.stdout.is_empty(), "sleep {marker} still runs");
 }
 
+/// The pnpm module's commands that run pnpm, against a stand-in `pnpm` that prints what pnpm
+/// 12 printed for these (no pnpm or registry needed): run-recursive, packages, outdated, why.
+/// And without `use nux/pnpm` there are none of them: `pnpm ...` is pnpm.
+#[test]
+fn pnpm_module_runs_pnpm_and_gives_tables() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = scratch().join(format!("pnpm-module-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("bin")).unwrap();
+    std::fs::create_dir_all(dir.join("ws/packages/a")).unwrap();
+    std::fs::write(dir.join("ws/packages/a/package.json"), r#"{"name":"@t/a","scripts":{"test":"x","build":"y"}}"#).unwrap();
+    let fake = dir.join("bin/pnpm");
+    std::fs::write(
+        &fake,
+        r#"#!/bin/sh
+case "$*" in
+  "--recursive --stream --filter ./packages/a run test --only")
+    printf 'Scope: 1 of 2 workspace projects\npackages/a test$ node --test --only\npackages/a test: TAP version 13\npackages/a test: not ok 1 - adds\npackages/a test: 1..1\npackages/a test: Failed\n'
+    echo 'ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @t/a test' >&2; exit 1 ;;
+  "--recursive --stream run nosuch")
+    echo 'None of the selected packages has a "nosuch" script' >&2; exit 1 ;;
+  "ls --recursive --depth -1 --json")
+    printf '[{"name":"root","path":"%s","private":true},{"name":"@t/a","version":"1.0.0","path":"%s/packages/a","private":false}]' "$PWD" "$PWD" ;;
+  "outdated --recursive --format json")
+    printf '{"left-pad":{"current":"1.0.0","wanted":"1.0.1","latest":"2.0.0","isDeprecated":false,"dependencyType":"dependencies","dependentPackages":[{"name":"@t/a","location":"/x"}]}}'; exit 1 ;;
+  "why react --recursive --json")
+    printf '[{"name":"react","version":"18.3.1","dependents":[{"name":"ui","version":"1.0.0","dependents":[{"name":"@t/a","version":"1.0.0","depField":"dependencies"}]},{"name":"forms","version":"2.0.0","dependents":[{"name":"ui","version":"1.0.0","deduped":true}]},{"name":"@t/a","version":"1.0.0","depField":"devDependencies"}]}]' ;;
+  "--version") echo 12.0.0 ;;
+  *) echo "fake pnpm: unexpected: $*" >&2; exit 9 ;;
+esac
+"#,
+    )
+    .unwrap();
+    std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let path = std::path::PathBuf::from(format!("{}:{}", dir.join("bin").display(), std::env::var("PATH").unwrap()));
+    let run = |code: &str| {
+        let run = nux_with(&[], &format!("cd '{}'\nuse nux/pnpm\n{code}", dir.join("ws").display()), &[("PATH", &path)]);
+        assert_eq!(run.status, 0, "{code}: {}{}", run.stdout, run.stderr);
+        run
+    };
+    // Options for pnpm after the script, what follows `--` for the script; a failing run is rows.
+    let tests = run("pnpm run-recursive test --filter ./packages/a -- --only | select package command status");
+    assert_eq!(tests.stdout, "[[package,command,status];[packages/a,\"node --test --only\",failed]]\n");
+    assert!(tests.stderr.contains("ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL"), "{}", tests.stderr);
+    let failed = nux_with(&[], &format!("cd '{}'\nuse nux/pnpm\npnpm run-recursive nosuch", dir.join("ws").display()), &[("PATH", &path)]);
+    assert!(failed.stdout.contains("pnpm failed before any package ran it"), "{}", failed.stdout);
+    assert!(failed.stdout.contains("has a \"nosuch\" script"), "{}", failed.stdout);
+    assert_eq!(run("pnpm packages | select name path scripts").stdout, "[[name,path,scripts];[root,\".\",[]],[@t/a,packages/a,[test,build]]]\n");
+    assert_eq!(
+        run("pnpm outdated | select name current latest used_by").stdout,
+        "[[name,current,latest,used_by];[left-pad,\"1.0.0\",\"2.0.0\",[@t/a]]]\n"
+    );
+    // A deduped dependent (`ui` under `forms`) is followed through its dependents elsewhere.
+    assert_eq!(
+        run("pnpm why react | select package field through").stdout,
+        "[[package,field,through];[@t/a,dependencies,[ui]],[@t/a,dependencies,[ui,forms]],[@t/a,devDependencies,[]]]\n"
+    );
+    // Without `use`, `pnpm ...` is pnpm itself (here the stand-in), also for `pnpm packages`.
+    let plain = nux_with(&[], "pnpm --version", &[("PATH", &path)]);
+    assert_eq!(plain.stdout, "12.0.0\n", "{}{}", plain.stdout, plain.stderr);
+}
+
+/// `pnpm by-package` (with `use nux/pnpm`): what `pnpm -r` printed, per package, without its
+/// prefix; and pnpm itself is still there.
+#[test]
+fn pnpm_by_package_takes_recursive_output_apart() {
+    let output = "Scope: 2 of 3 workspace projects\n\
+        packages/a test$ node --test\n\
+        packages/b test$ node --test\n\
+        packages/a test: TAP version 13\n\
+        packages/b test: TAP version 13\n\
+        packages/a test: ok 1 - adds\n\
+        packages/b test: not ok 1 - parses\n\
+        packages/b test:   ---\n\
+        packages/b test:   error: 'expected 2'\n\
+        packages/b test:   ...\n\
+        packages/a test: 1..1\n\
+        packages/b test: 1..1\n\
+        packages/a test: Done\n\
+        packages/b test: Failed\n\
+        warning x: y\n";
+    let code = format!(
+        "use nux/pnpm\n\
+         let run = {{stdout: {}, stderr: '', exit_code: 1}}\n\
+         $run | pnpm by-package | select package status\n\
+         $run | pnpm by-package | each {{|p| $p.output | from tap | insert package $p.package }} | flatten | select package status error\n\
+         try {{ $run | from tap }} catch {{|e| $e.rendered | str contains 'pnpm by-package' }}",
+        serde_json::to_string(output).unwrap()
+    );
+    let run = nux(&[], &code);
+    assert_eq!(run.status, 0, "{}{}", run.stdout, run.stderr);
+    assert!(run.stdout.contains("[[package,status];[packages/a,done],[packages/b,failed]]"), "{}", run.stdout);
+    assert!(run.stdout.contains("[[package,status,error];[packages/a,pass,null],[packages/b,fail,\"expected 2\"]]"), "{}", run.stdout);
+    assert!(run.stdout.ends_with("true\n"), "{}", run.stdout);
+}
+
 /// A URL is up at any answer, also a 404; with --status only at one of those.
 #[test]
 fn wait_for_a_url_and_a_status() {
