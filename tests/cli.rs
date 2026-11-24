@@ -942,6 +942,76 @@ fn pnpm_by_package_takes_recursive_output_apart() {
     assert!(run.stdout.ends_with("true\n"), "{}", run.stdout);
 }
 
+/// A stand-in `npm` that prints what npm 11 printed for these (shapes recorded from the
+/// registry, values made small), for the nux/npm tests: no network. Returns its folder and a
+/// PATH with it first.
+fn fake_npm() -> (std::path::PathBuf, std::path::PathBuf) {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = scratch().join(format!("npm-module-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("bin")).unwrap();
+    std::fs::create_dir_all(dir.join("work")).unwrap();
+    let fake = dir.join("bin/npm");
+    std::fs::write(
+        &fake,
+        r#"#!/bin/sh
+case "$*" in
+  "view left-pad time dist-tags versions --json")
+    printf '%s' '{"time":{"created":"2014-03-01T00:00:00.000Z","modified":"2024-01-01T00:00:00.000Z","1.0.0":"2015-01-01T00:00:00.000Z","1.3.0":"2018-04-09T00:00:00.000Z"},"dist-tags":{"latest":"1.3.0","next":"2.0.0-beta.1"},"versions":["1.0.0","1.3.0","2.0.0-beta.1"]}' ;;
+  "view left-pad@>=0.0.0-0 version deprecated --json")
+    printf '%s' '[{"version":"1.0.0","deprecated":"use String.prototype.padStart()"},{"version":"1.3.0"},{"version":"2.0.0-beta.1"}]' ;;
+  "view solo time dist-tags versions --json")
+    printf '%s' '{"time":{"created":"2020-01-01T00:00:00.000Z","modified":"2020-01-01T00:00:00.000Z","1.0.0":"2020-01-01T00:00:00.000Z"},"dist-tags":{"latest":"1.0.0"},"versions":"1.0.0"}' ;;
+  "view solo@>=0.0.0-0 version deprecated --json")
+    printf '%s' '{"version":"1.0.0"}' ;;
+  "view left-pad@1 --json")
+    printf '%s' '[{"name":"left-pad","version":"1.0.0","_id":"left-pad@1.0.0"},{"name":"left-pad","version":"1.3.0","_id":"left-pad@1.3.0","peerDependencies":{"x":"^1"}}]' ;;
+  "view left-pad@1.3.0 --json")
+    printf '%s' '{"name":"left-pad","version":"1.3.0","_id":"left-pad@1.3.0","_rev":"1","versions":["1.3.0"],"time":{},"users":{},"readme":"long","main":"index.js"}' ;;
+  "view solo@1 --json")
+    printf '%s' '{"name":"solo","version":"1.0.0"}' ;;
+  "view @t/scoped@2.0.0 --json")
+    printf '%s' '{"name":"@t/scoped","version":"2.0.0"}' ;;
+  "pack left-pad@1.3.0 --dry-run --json")
+    printf '%s' '[{"name":"left-pad","version":"1.3.0","files":[{"path":"index.js","size":1000,"mode":420},{"path":"package.json","size":600,"mode":420}]}]' ;;
+  "view nope --json"|"view nope time dist-tags versions --json")
+    printf '%s' '{"error":{"code":"E404","summary":"Not Found - GET https://registry.npmjs.org/nope - Not found","detail":"x"}}'
+    echo 'npm error code E404' >&2; exit 1 ;;
+  "view left-pad@99 --json")
+    printf '%s' '{"error":{"code":"E404","summary":"No match found for version 99"}}'
+    echo 'npm error code E404' >&2; exit 1 ;;
+  "view broken --json")
+    echo 'npm error network ECONNREFUSED' >&2; exit 1 ;;
+  *) echo "fake npm: unexpected: $*" >&2; exit 9 ;;
+esac
+"#,
+    )
+    .unwrap();
+    std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let path = std::path::PathBuf::from(format!("{}:{}", dir.join("bin").display(), std::env::var("PATH").unwrap()));
+    (dir, path)
+}
+
+/// Code after `use nux/npm`, in the stand-in's work folder, with the stand-in on PATH.
+fn with_npm(code: &str) -> Run {
+    let (dir, path) = fake_npm();
+    nux_with(&[], &format!("cd '{}'\nuse nux/npm\n{code}", dir.join("work").display()), &[("PATH", &path)])
+}
+
+/// `npm versions`: a row per version, by publish date, with its tags and deprecation; a
+/// package of one version (npm: a string, a record) the same.
+#[test]
+fn npm_versions_gives_a_row_per_version() {
+    let run = with_npm("npm versions left-pad | to nuon");
+    assert_eq!(
+        run.stdout,
+        "[[version, published, tags, deprecated]; [\"1.0.0\", 2015-01-01T00:00:00+00:00, [], \"use String.prototype.padStart()\"], [\"1.3.0\", 2018-04-09T00:00:00+00:00, [latest], null], [\"2.0.0-beta.1\", null, [next], null]]\n",
+        "{}",
+        run.stderr
+    );
+    let run = with_npm("npm versions solo | to nuon");
+    assert_eq!(run.stdout, "[[version, published, tags, deprecated]; [\"1.0.0\", 2020-01-01T00:00:00+00:00, [latest], null]]\n", "{}", run.stderr);
+}
+
 /// A URL is up at any answer, also a 404; with --status only at one of those.
 #[test]
 fn wait_for_a_url_and_a_status() {
