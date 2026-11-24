@@ -1012,6 +1012,46 @@ fn npm_versions_gives_a_row_per_version() {
     assert_eq!(run.stdout, "[[version, published, tags, deprecated]; [\"1.0.0\", 2020-01-01T00:00:00+00:00, [latest], null]]\n", "{}", run.stderr);
 }
 
+/// `npm info`: one record; a range is its highest version; without npm's `_` fields and the
+/// large ones; a scoped name with a version.
+#[test]
+fn npm_info_gives_one_record() {
+    let run = with_npm("npm info left-pad@1 | get version");
+    assert_eq!(run.stdout, "1.3.0\n", "{}", run.stderr);
+    let run = with_npm("npm info left-pad@1 | get peerDependencies.x");
+    assert_eq!(run.stdout, "^1\n", "{}", run.stderr);
+    let run = with_npm("npm info left-pad@1.3.0 | columns | to nuon");
+    assert_eq!(run.stdout, "[name, version, main]\n", "{}", run.stderr);
+    let run = with_npm("npm info solo@1 | get version");
+    assert_eq!(run.stdout, "1.0.0\n", "{}", run.stderr);
+    let run = with_npm("npm info @t/scoped@2.0.0 | get name");
+    assert_eq!(run.stdout, "@t/scoped\n", "{}", run.stderr);
+}
+
+/// `npm files`: what a published package contains, and nothing is downloaded here.
+#[test]
+fn npm_files_lists_a_published_package() {
+    let run = with_npm("npm files left-pad@1.3.0 | to nuon");
+    assert_eq!(run.stdout, "[[path, size]; [\"index.js\", 1000b], [\"package.json\", 600b]]\n", "{}", run.stderr);
+    let run = with_npm("npm files left-pad@1.3.0 | ignore; glob *.tgz | length");
+    assert_eq!(run.stdout, "0\n", "{}", run.stderr);
+}
+
+/// What npm says when a package or version is not there, or npm fails without JSON.
+#[test]
+fn npm_errors_say_what_npm_said() {
+    for (code, said) in [
+        ("npm info nope", "Not Found - GET https://registry.npmjs.org/nope"),
+        ("npm versions nope", "Not Found - GET https://registry.npmjs.org/nope"),
+        ("npm info left-pad@99", "No match found for version 99"),
+        ("npm info broken", "ECONNREFUSED"),
+    ] {
+        let run = with_npm(code);
+        assert_eq!(run.status, 1, "{code}: {}", run.stdout);
+        assert!(run.stdout.contains(said), "{code}: {}", run.stdout);
+    }
+}
+
 /// A URL is up at any answer, also a 404; with --status only at one of those.
 #[test]
 fn wait_for_a_url_and_a_status() {

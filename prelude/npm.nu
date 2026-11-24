@@ -53,3 +53,38 @@ export def versions [
     }
   } | sort-by published
 }
+
+# One version's manifest (package.json as published), as a record: name, version,
+# dependencies, peerDependencies, exports, files, ...
+#
+# A range (react@18, react@^18.2) is the highest version in it, where npm itself gives a
+# list. Leaves out npm's own `_` fields and versions, time, users and readme: for every
+# version, `npm versions`.
+@search-terms "npm view" "package.json" peerDependencies exports manifest "npm info"
+@example "What a version needs next to it" { npm info react-router@7 | get peerDependencies }
+@example "The newest in a range" { npm info typescript@5 | get version }
+@example "How a package is laid out" { npm info @dral/tsconfig | select version exports files }
+export def info [
+  spec: string   # A package, with a version, range or tag: react, react@18, react@next
+]: nothing -> record {
+  let found = (npm-json view $spec --json)
+  # A range that matches several versions comes as a list, lowest first.
+  let manifest = if ($found | describe) =~ '^(list|table)' { $found | last } else { $found }
+  let leave_out = ($manifest | columns | where {|name| $name starts-with '_' or $name in [versions time users readme] })
+  $manifest | reject ...$leave_out
+}
+
+# What a published package contains, without downloading it here: one row per file, with
+# path and size. (`npm pack --dry-run`: nothing is written.)
+@search-terms "npm pack" "package contents" tarball "published files"
+@example "Is the build in it" { npm files @dral/tsconfig@1.8.0 | where path =~ '^dist/' }
+@example "The largest files" { npm files typescript | sort-by size --reverse | first 5 }
+export def files [
+  spec: string   # A package, with a version, range or tag: left-pad@1.3.0
+]: nothing -> table {
+  npm-json pack $spec --dry-run --json
+  | get 0.files
+  | each {|file|
+      {path: $file.path, size: ($file.size | into filesize)}
+    }
+}
