@@ -1,0 +1,68 @@
+{
+  "name": "git-history.bash.sonnet.1",
+  "task": "git-history",
+  "tool": "bash",
+  "model": "sonnet",
+  "rep": 1,
+  "passed": true,
+  "checks": {
+    "parse_config_added_in": true,
+    "legacy_deleted_in": true,
+    "most_changed_file": true,
+    "lines_added_by_carol": true
+  },
+  "exit_code": 0,
+  "wall_seconds": 11.4,
+  "duration_ms": 8285,
+  "num_turns": 4,
+  "cost_usd": 0.04685860000000001,
+  "usage": {
+    "input_tokens": 8,
+    "cache_creation_input_tokens": 7917,
+    "cache_read_input_tokens": 72046,
+    "output_tokens": 797,
+    "output_tokens_details": {
+      "thinking_tokens": 67
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 7917,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "global",
+    "iterations": [
+      {
+        "input_tokens": 2,
+        "output_tokens": 334,
+        "cache_read_input_tokens": 20117,
+        "cache_creation_input_tokens": 133,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 133
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "models_used": [
+    "claude-sonnet-5-5"
+  ],
+  "is_error": false,
+  "result": "I wrote the answers to `answer.json`:\n\n```json\n{\"parse_config_added_in\":\"c78c29d\",\"legacy_deleted_in\":\"4e1973b\",\"most_changed_file\":\"src/routes.js\",\"lines_added_by_carol\":73}\n```\n\n- **`parse_config_added_in`:** `c78c29d` (\"Read the config file\") is the first commit that touches `parseConfig`, and its diff adds `export function parseConfig(text)`. A later commit, `10c0730`, only adds a note about it.\n- **`legacy_deleted_in`:** `4e1973b` (\"Clean up old code\") is the commit that deleted `src/legacy.js`.\n- **`most_changed_file`:** `src/routes.js` was changed by 20 commits. The next most-changed file, `src/server.js`, was changed by 9.\n- **`lines_added_by_carol`:** Carol Example's 19 commits add 73 lines in total.\n\nThe repository itself is unchanged; the only new file is `answer.json`.",
+  "session_id": "67cb261a-44f4-4a83-8aaa-7031240d9301",
+  "transcript": "/home/coder/.claude/projects/-tmp-claude-1000--home-coder-9ee3d5d3-1d30-4a27-ab1a-cf3371329911-scratchpad-eval-run1-git-history-bash-sonnet-1/67cb261a-44f4-4a83-8aaa-7031240d9301.jsonl",
+  "tool_calls": {
+    "Bash": 3
+  },
+  "bash_calls": 3,
+  "bash_errors": 0,
+  "bash_blocked": 0,
+  "bash_output_chars": 269,
+  "nux_help_calls": 0
+}

@@ -1,0 +1,68 @@
+{
+  "name": "git-history.bash.opus.1",
+  "task": "git-history",
+  "tool": "bash",
+  "model": "opus",
+  "rep": 1,
+  "passed": true,
+  "checks": {
+    "parse_config_added_in": true,
+    "legacy_deleted_in": true,
+    "most_changed_file": true,
+    "lines_added_by_carol": true
+  },
+  "exit_code": 0,
+  "wall_seconds": 16.5,
+  "duration_ms": 14014,
+  "num_turns": 4,
+  "cost_usd": 0.1064674,
+  "usage": {
+    "input_tokens": 8,
+    "cache_creation_input_tokens": 8650,
+    "cache_read_input_tokens": 72877,
+    "output_tokens": 1133,
+    "output_tokens_details": {
+      "thinking_tokens": 108
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 8650,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "global",
+    "iterations": [
+      {
+        "input_tokens": 2,
+        "output_tokens": 347,
+        "cache_read_input_tokens": 20627,
+        "cache_creation_input_tokens": 356,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 356
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "models_used": [
+    "claude-opus-5-5"
+  ],
+  "is_error": false,
+  "result": "I wrote the four answers to `answer.json`. The only change in the folder is that new file; the repository itself is untouched.\n\n| Key | Answer | How I found it |\n|---|---|---|\n| `parse_config_added_in` | `c78c29df311f\u2026` (\"Read the config file\", by Alice) | This commit adds `export function parseConfig(text)` in `src/config.js`. A later commit, \"Note on parseConfig\", also mentions the name, but the function already existed by then. |\n| `legacy_deleted_in` | `4e1973b40d92\u2026` (\"Clean up old code\") | This is the only commit that deletes `src/legacy.js`. |\n| `most_changed_file` | `src/routes.js` | 20 commits changed it. The next highest is `src/server.js` with 9. |\n| `lines_added_by_carol` | 73 | This is the total of added lines across all 19 of Carol Example's commits. She appears under only one name and email, so nothing needed merging. |",
+  "session_id": "cbd2a1f1-e1eb-4e30-aded-ba95a57e3c1d",
+  "transcript": "/home/coder/.claude/projects/-tmp-claude-1000--home-coder-9ee3d5d3-1d30-4a27-ab1a-cf3371329911-scratchpad-eval-run1-git-history-bash-opus-1/cbd2a1f1-e1eb-4e30-aded-ba95a57e3c1d.jsonl",
+  "tool_calls": {
+    "Bash": 3
+  },
+  "bash_calls": 3,
+  "bash_errors": 0,
+  "bash_blocked": 0,
+  "bash_output_chars": 928,
+  "nux_help_calls": 0
+}
