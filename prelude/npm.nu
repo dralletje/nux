@@ -26,6 +26,25 @@ def --wrapped npm-json [...arguments: string]: nothing -> any {
   $found
 }
 
+# A version's parts, to sort by semver: major, minor, patch as numbers; release true for a
+# version without a prerelease (it sorts after its prereleases); pre the prerelease with
+# its numbers padded (beta.9 before beta.10).
+def semver-key [version: string]: nothing -> record {
+  let parts = ($version | parse --regex '^(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)(?:-(?<pre>[^+]*))?')
+  if ($parts | is-empty) {
+    return {major: 0, minor: 0, patch: 0, release: false, pre: $version}
+  }
+  let part = ($parts | first)
+  let pre = ($part.pre? | default "")
+  {
+    major: ($part.major | into int)
+    minor: ($part.minor | into int)
+    patch: ($part.patch | into int)
+    release: ($pre == "")
+    pre: ($pre | split row '.' | each {|id| if $id =~ '^\d+$' { $id | fill --alignment right --width 12 --character '0' } else { $id } } | str join '.')
+  }
+}
+
 # Every published version of a package: version, published (when), tags (the dist-tags that
 # point at it: latest, next, ...), deprecated (npm's message, or null).
 #
@@ -41,23 +60,40 @@ export def versions [
   # One version comes as a string; several as a list.
   let names = ($found.versions? | default [] | append [] | flatten)
   let times = ($found.time? | default {})
-  let tags = ($found | get -o dist-tags | default {} | transpose tag version)
-  # The plain `deprecated` field is only the latest version's: per version, a range.
-  # When no version is deprecated, npm gives the versions as plain strings instead.
+  # Per version, its tags: a record, so each version is one lookup (react has ~3000).
+  let tags = (
+    $found
+    | get -o dist-tags
+    | default {}
+    | transpose tag version
+    | reduce --fold {} {|row, by_version|
+        $by_version | upsert $row.version (($by_version | get -o $row.version | default []) | append $row.tag)
+      }
+  )
+  # The plain `deprecated` field is only the latest version's: per version, a range. Under
+  # semver `>=0.0.0-0` leaves out prereleases of any other version, so each prerelease's
+  # version gets its own `>=2.0.0-0 <2.0.0`.
+  let prerelease_bases = ($names | where $it =~ '-' | each {|version| $version | split row '-' | first | split row '+' | first } | uniq)
+  let range = ([">=0.0.0-0"] | append ($prerelease_bases | each {|base| $">=($base)-0 <($base)" }) | str join " || ")
+  # When no version in it is deprecated, npm gives the versions as plain strings instead.
   let deprecations = (
-    npm-json view $"($package)@>=0.0.0-0" version deprecated --json
+    npm-json view $"($package)@($range)" version deprecated --json
     | append []
     | flatten
-    | each {|entry|
-        if ($entry | describe) == "string" { {version: $entry, deprecated: null} } else { $entry }
+    | reduce --fold {} {|entry, by_version|
+        if ($entry | describe) == "string" {
+          $by_version
+        } else {
+          $by_version | upsert $entry.version ($entry.deprecated? | default null)
+        }
       }
   )
   $names | each {|version|
     {
       version: $version
       published: ($times | get -o $version | default null | if $in != null { $in | into datetime } else { null })
-      tags: ($tags | where version == $version | get tag)
-      deprecated: ($deprecations | where version == $version | get -o 0.deprecated | default null)
+      tags: ($tags | get -o $version | default [])
+      deprecated: ($deprecations | get -o $version | default null)
     }
   } | sort-by published
 }
@@ -71,13 +107,22 @@ export def versions [
 @search-terms "npm view" "package.json" peerDependencies exports manifest "npm info"
 @example "What a version needs next to it" { npm info react-router@7 | get peerDependencies }
 @example "The newest in a range" { npm info typescript@5 | get version }
-@example "How a package is laid out" { npm info @dral/tsconfig | select version exports files }
+@example "How a package is laid out" { npm info @dral/tsconfig | select version exports }
 export def info [
   spec: string   # A package, with a version, range or tag: react, react@18, react@next
 ]: nothing -> record {
   let found = (npm-json view $spec --json)
-  # A range that matches several versions comes as a list, lowest first.
-  let manifest = if ($found | describe) =~ '^(list|table)' { $found | last } else { $found }
+  # A range that matches several versions comes as a list, in the registry's order (a
+  # backport comes after a newer line): the highest by semver.
+  let manifest = if ($found | describe) =~ '^(list|table)' {
+    $found
+    | insert key {|manifest| semver-key $manifest.version }
+    | sort-by key.major key.minor key.patch key.release key.pre
+    | last
+    | reject key
+  } else {
+    $found
+  }
   let leave_out = ($manifest | columns | where {|name| $name starts-with '_' or $name in [versions time users readme] })
   $manifest | reject ...$leave_out
 }
@@ -85,7 +130,7 @@ export def info [
 # What a published package contains, without downloading it here: one row per file, with
 # path and size. (`npm pack --dry-run`: nothing is written.)
 @search-terms "npm pack" "package contents" tarball "published files"
-@example "Is the build in it" { npm files @dral/tsconfig@1.8.0 | where path =~ '^dist/' }
+@example "Is the build in it" { npm files react-router@7 | where path =~ '^dist/' | length }
 @example "The largest files" { npm files typescript | sort-by size --reverse | first 5 }
 export def files [
   spec: string   # A package, with a version, range or tag: left-pad@1.3.0

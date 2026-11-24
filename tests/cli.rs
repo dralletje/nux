@@ -957,7 +957,7 @@ fn fake_npm() -> (std::path::PathBuf, std::path::PathBuf) {
 case "$*" in
   "view left-pad time dist-tags versions --json")
     printf '%s' '{"time":{"created":"2014-03-01T00:00:00.000Z","modified":"2024-01-01T00:00:00.000Z","1.0.0":"2015-01-01T00:00:00.000Z","1.3.0":"2018-04-09T00:00:00.000Z"},"dist-tags":{"latest":"1.3.0","next":"2.0.0-beta.1"},"versions":["1.0.0","1.3.0","2.0.0-beta.1"]}' ;;
-  "view left-pad@>=0.0.0-0 version deprecated --json")
+  "view left-pad@>=0.0.0-0 || >=2.0.0-0 <2.0.0 version deprecated --json")
     printf '%s' '[{"version":"1.0.0","deprecated":"use String.prototype.padStart()"},{"version":"1.3.0"},{"version":"2.0.0-beta.1"}]' ;;
   "view solo time dist-tags versions --json")
     printf '%s' '{"time":{"created":"2020-01-01T00:00:00.000Z","modified":"2020-01-01T00:00:00.000Z","1.0.0":"2020-01-01T00:00:00.000Z"},"dist-tags":{"latest":"1.0.0"},"versions":"1.0.0"}' ;;
@@ -967,6 +967,18 @@ case "$*" in
     printf '%s' '{"time":{"1.0.0":"2021-01-01T00:00:00.000Z","1.1.0":"2021-02-01T00:00:00.000Z"},"dist-tags":{"latest":"1.1.0"},"versions":["1.0.0","1.1.0"]}' ;;
   "view fresh@>=0.0.0-0 version deprecated --json")
     printf '%s' '["1.0.0","1.1.0"]' ;;
+  "view pre time dist-tags versions --json")
+    printf '%s' '{"time":{"1.0.0":"2021-01-01T00:00:00.000Z","2.0.0-beta.1":"2021-02-01T00:00:00.000Z","2.0.0":"2021-03-01T00:00:00.000Z"},"dist-tags":{"latest":"2.0.0"},"versions":["1.0.0","2.0.0-beta.1","2.0.0"]}' ;;
+  "view pre@>=0.0.0-0 || >=2.0.0-0 <2.0.0 version deprecated --json")
+    printf '%s' '[{"version":"1.0.0"},{"version":"2.0.0-beta.1","deprecated":"use 2.0.0"},{"version":"2.0.0"}]' ;;
+  "view unordered@6 || 7 --json")
+    printf '%s' '[{"name":"unordered","version":"6.14.12"},{"name":"unordered","version":"7.10.14"},{"name":"unordered","version":"6.14.13"}]' ;;
+  "view unordered@2 --json")
+    printf '%s' '[{"name":"unordered","version":"2.0.0"},{"name":"unordered","version":"2.0.0-beta.10"},{"name":"unordered","version":"2.0.0-beta.9"},{"name":"unordered","version":"2.10.0"},{"name":"unordered","version":"2.9.0"}]' ;;
+  "view big time dist-tags versions --json")
+    cat "$(dirname "$0")/big-view.json" ;;
+  "view big@>=0.0.0-0 version deprecated --json")
+    cat "$(dirname "$0")/big-deprecated.json" ;;
   "view left-pad@1 --json")
     printf '%s' '[{"name":"left-pad","version":"1.0.0","_id":"left-pad@1.0.0"},{"name":"left-pad","version":"1.3.0","_id":"left-pad@1.3.0","peerDependencies":{"x":"^1"}}]' ;;
   "view left-pad@1.3.0 --json")
@@ -991,6 +1003,21 @@ esac
     )
     .unwrap();
     std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+    // `big`: 3000 versions, half of them deprecated, as react has (~3000 versions).
+    let versions: Vec<String> = (0..3000).map(|n| format!("1.{}.{}", n / 100, n % 100)).collect();
+    let times: Vec<String> = versions.iter().enumerate().map(|(n, v)| format!("\"{v}\":\"2020-01-01T00:{:02}:{:02}.000Z\"", n / 60 % 60, n % 60)).collect();
+    let view = format!(
+        "{{\"time\":{{{}}},\"dist-tags\":{{\"latest\":\"1.29.99\"}},\"versions\":[{}]}}",
+        times.join(","),
+        versions.iter().map(|v| format!("\"{v}\"")).collect::<Vec<_>>().join(",")
+    );
+    std::fs::write(dir.join("bin/big-view.json"), view).unwrap();
+    let deprecated: Vec<String> = versions
+        .iter()
+        .enumerate()
+        .map(|(n, v)| if n % 2 == 0 { format!("{{\"version\":\"{v}\",\"deprecated\":\"old\"}}") } else { format!("{{\"version\":\"{v}\"}}") })
+        .collect();
+    std::fs::write(dir.join("bin/big-deprecated.json"), format!("[{}]", deprecated.join(","))).unwrap();
     let path = std::path::PathBuf::from(format!("{}:{}", dir.join("bin").display(), std::env::var("PATH").unwrap()));
     (dir, path)
 }
@@ -1017,6 +1044,26 @@ fn npm_versions_gives_a_row_per_version() {
     // No version deprecated: npm gives the versions as plain strings (react, live).
     let run = with_npm("npm versions fresh | get deprecated | to nuon");
     assert_eq!(run.stdout, "[null, null]\n", "{}{}", run.stdout, run.stderr);
+    // A deprecated prerelease: `>=0.0.0-0` alone leaves prereleases out (semver), so the
+    // query names each prerelease's base too.
+    let run = with_npm("npm versions pre | where deprecated != null | get version | to nuon");
+    assert_eq!(run.stdout, "[\"2.0.0-beta.1\"]\n", "{}{}", run.stdout, run.stderr);
+    // 3000 versions: one lookup per version, not a search through all of them (react took
+    // 40 s that way).
+    let started = std::time::Instant::now();
+    let run = with_npm("npm versions big | where deprecated != null | length");
+    assert_eq!(run.stdout, "1500\n", "{}{}", run.stdout, run.stderr);
+    assert!(started.elapsed() < std::time::Duration::from_secs(10), "npm versions big took {:?}", started.elapsed());
+}
+
+/// `npm info` with a range: the highest version by semver, whatever order npm lists them in
+/// (npm keeps the registry's order: a backport comes after a newer line).
+#[test]
+fn npm_info_takes_the_highest_version_of_a_range() {
+    let run = with_npm("npm info 'unordered@6 || 7' | get version");
+    assert_eq!(run.stdout, "7.10.14\n", "{}", run.stderr);
+    let run = with_npm("npm info unordered@2 | get version");
+    assert_eq!(run.stdout, "2.10.0\n", "{}", run.stderr);
 }
 
 /// `npm info`: one record; a range is its highest version; without npm's `_` fields and the
