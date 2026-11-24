@@ -45,7 +45,7 @@ curl -fsSL "https://github.com/dralletje/nux/releases/latest/download/nux-linux-
 
 Tools some commands use, when they are on PATH: `rg` (`search`), `ast-grep` (`ast-find`,
 from https://github.com/ast-grep/ast-grep/releases), `python3` (`py`), Node 26 or newer
-(`js`, or `NUX_NODE` set to one), `ss` (`ports`, `wait-for` a port). Plugins are the ones
+(`js`, or `NUX_NODE` set to one), `ss` (`ports`, `wait-for port`). Plugins are the ones
 registered for `nu`, or with `plugin add` in nux; they must be of Nushell 0.117.
 
 ### Let an agent install it

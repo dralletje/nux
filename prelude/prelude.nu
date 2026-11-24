@@ -7,6 +7,7 @@
 export use nux/git
 export use nux/typescript *
 export use nux/servers *
+export use nux/timeout *
 export use nux/test-format *
 export use nux/ast *
 export use nux/output *

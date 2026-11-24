@@ -36,5 +36,10 @@ column missing from some rows is an error there, unless they remember `staged?`,
 do not. The same for records that come in lists. `tests/cli.rs` checks this for the table
 commands (`table_commands_give_every_column_in_every_row`); add a new one there.
 
+No `--timeout` (or other time limit) on a command. A command that waits (`wait-for ...`)
+waits until what it waits for happens; a limit is the caller's, put around it with the one
+`timeout` block: `timeout 2min { wait-for url ... }`. Not a flag per command, not an
+environment variable: one way, the same for every command and for any code.
+
 `nux help` (src/help.txt) is the manual agents read. When behaviour changes, change it too,
 and run its examples: they must work as written.

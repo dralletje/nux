@@ -26,8 +26,9 @@ pub fn hint(context: &ErrorContext) -> Option<String> {
     let instead = program
         .map(|p| format!("\nFor the program `{p}` itself: `^{} {}`.", command, flag_as_given(context, flag)))
         .unwrap_or_default();
+    let known = other_tool(command, given).map(|way| format!("{way}\n")).unwrap_or_default();
     if flags.is_empty() {
-        return Some(format!("`{command}` has no flags.{instead}"));
+        return Some(format!("{known}`{command}` has no flags.{instead}"));
     }
 
     // Only for a long flag: a single letter is usually another tool's (`-A` of grep is not
@@ -46,7 +47,6 @@ pub fn hint(context: &ErrorContext) -> Option<String> {
         .collect::<Vec<_>>()
         .join("\n");
     let mean = suggestion.map(|s| format!("Did you mean --{s}? ")).unwrap_or_default();
-    let known = other_tool(command, given).map(|way| format!("{way}\n")).unwrap_or_default();
     Some(format!("{known}{mean}The flags of `{command}`:\n{list}{instead}"))
 }
 
@@ -54,6 +54,10 @@ pub fn hint(context: &ErrorContext) -> Option<String> {
 /// (grep's, for `search`: the most common unknown flags in the review of 2026-11-17.)
 fn other_tool(command: &str, flag: &str) -> Option<&'static str> {
     Some(match (command, flag) {
+        // No command has a time limit of its own (AGENTS.md): there is one, around any code.
+        (_, "timeout" | "time-limit" | "max-time") if command != "http" && !command.starts_with("http ") => {
+            "No command has a time limit of its own: put it in `timeout`, e.g. timeout 2min { ... }."
+        }
         ("search", "n" | "line-number") => "`-n`: not needed, `line` is always there.",
         ("search", "r" | "R" | "recursive") => "`-r`: not needed, folders are always searched through.",
         ("search", "c" | "count") => "`-c`: --files gives one row per file with its number of matches.",

@@ -697,18 +697,74 @@ fn ranges_reach_py_and_js_as_numbers() {
     assert_eq!(run.stdout, "{start:1,end:null,step:2,inclusive:true}\n", "{}{}", run.stdout, run.stderr);
 }
 
-/// `wait-for <port>`: done as soon as something listens there; an error after the time
-/// limit when nothing does.
+/// `wait-for port`: done as soon as something listens there; it has no time limit of its own,
+/// `timeout` stops it. `wait-for` without saying what is an error that says how.
 #[test]
 fn wait_for_a_port() {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
-    let run = nux(&[], &format!("wait-for {port} | get ready"));
+    let run = nux(&[], &format!("wait-for port {port} | get ready"));
     assert_eq!(run.stdout, "true\n", "{}{}", run.stdout, run.stderr);
     drop(listener);
-    let run = nux(&[], &format!("wait-for {port} --timeout 300ms"));
+    let run = nux(&[], &format!("timeout 300ms {{ wait-for port {port} }}"));
     assert_eq!(run.status, 1);
-    assert!(run.stdout.contains("did not answer as wanted within"), "{}", run.stdout);
+    assert!(run.stdout.contains("did not finish within 300ms"), "{}", run.stdout);
+    let run = nux(&[], &format!("wait-for port {port} --timeout 300ms"));
+    assert!(run.stdout.contains("Hint: No command has a time limit of its own: put it in `timeout`"), "{}", run.stdout);
+    let run = nux(&[], &format!("wait-for {port}"));
+    assert_eq!(run.status, 1);
+    assert!(run.stdout.contains(&format!("For this: wait-for port {port}")), "{}", run.stdout);
+}
+
+/// `wait-for file`: there, with a text in it, or no longer growing; `wait-for pid`: ended.
+#[test]
+fn wait_for_a_file_and_a_process() {
+    let dir = scratch().join(format!("wait-for-file-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("out.log");
+    let writer = {
+        let file = file.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            std::fs::write(&file, "building\n").unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            std::fs::write(&file, "building\nDone in 2s\n").unwrap();
+        })
+    };
+    let f = file.display();
+    let run = nux(&[], &format!("timeout 5sec {{ wait-for file '{f}' --contains 'Done in' }} | get size"));
+    assert_eq!(run.stdout, "20b\n", "{}{}", run.stdout, run.stderr);
+    writer.join().unwrap();
+    let run = nux(&[], &format!("timeout 5sec {{ wait-for file '{f}' --stable 300ms }} | get ready"));
+    assert_eq!(run.stdout, "true\n", "{}{}", run.stdout, run.stderr);
+    let run = nux(&[], &format!("timeout 300ms {{ wait-for file '{f}' --contains nope }}"));
+    assert!(run.stdout.contains("did not finish within 300ms"), "{}", run.stdout);
+    // A process that ends: done; one that does not: still waiting when the time is up.
+    let mut child = Command::new("sleep").arg("0.4").spawn().unwrap();
+    let run = nux(&[], &format!("timeout 5sec {{ wait-for pid {} }} | get ready", child.id()));
+    assert_eq!(run.stdout, "true\n", "{}{}", run.stdout, run.stderr);
+    child.wait().unwrap();
+    let mut child = Command::new("sleep").arg("5").spawn().unwrap();
+    let run = nux(&[], &format!("timeout 300ms {{ wait-for pid {} }}", child.id()));
+    assert!(run.stdout.contains("did not finish within 300ms"), "{}", run.stdout);
+    child.kill().unwrap();
+    child.wait().unwrap();
+}
+
+/// `timeout`: the block's value, input and own error; stopped, with the commands it started,
+/// when the time is up.
+#[test]
+fn timeout_stops_a_block() {
+    let run = nux(&[], "[1 2 3] | timeout 2sec { $in | math sum }");
+    assert_eq!(run.stdout, "6\n", "{}{}", run.stdout, run.stderr);
+    let run = nux(&[], "timeout 2sec { error make {msg: 'its own error'} }");
+    assert!(run.stdout.contains("its own error"), "{}", run.stdout);
+    let marker = format!("{}.{}", 30 + std::process::id() % 1000, std::process::id());
+    let run = nux(&[], &format!("timeout 300ms {{ ^sleep {marker} }}"));
+    assert_eq!(run.status, 1);
+    assert!(run.stdout.contains("timeout: the block did not finish within 300ms; it was stopped"), "{}", run.stdout);
+    let left = Command::new("pgrep").args(["-f", &format!("sleep {marker}")]).output().unwrap();
+    assert!(left.stdout.is_empty(), "sleep {marker} still runs");
 }
 
 /// A URL is up at any answer, also a 404; with --status only at one of those.
@@ -725,11 +781,14 @@ fn wait_for_a_url_and_a_status() {
             let _ = stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
         }
     });
-    let run = nux(&[], &format!("wait-for http://127.0.0.1:{port}/ | get status"));
+    let run = nux(&[], &format!("wait-for url http://127.0.0.1:{port}/ | get status"));
     assert_eq!(run.stdout, "404\n", "{}{}", run.stdout, run.stderr);
-    let run = nux(&[], &format!("wait-for http://127.0.0.1:{port}/ --status [200] --timeout 600ms"));
+    let run = nux(&[], &format!("timeout 600ms {{ wait-for url http://127.0.0.1:{port}/ --status [200] }}"));
     assert_eq!(run.status, 1);
-    assert!(run.stdout.contains("last with status 404, not one of 200"), "{}", run.stdout);
+    assert!(run.stdout.contains("did not finish within 600ms"), "{}", run.stdout);
+    // Stopped, it says what it last saw, on stderr.
+    assert!(run.stderr.contains(&format!("wait-for url http://127.0.0.1:{port}/: stopped after")), "{}", run.stderr);
+    assert!(run.stderr.contains("it answered, last with status 404, not one of 200"), "{}", run.stderr);
 }
 
 #[test]
