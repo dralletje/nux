@@ -123,8 +123,15 @@ task the picture is the same: nux more turns and cost on every task, most on ref
   each a turn that re-reads the whole context. That is a rule of the setup, not of nux.
 - **The manual.** One `nux help` call, ~11 KB of output: the ~5k more cache written per
   run, and most of the 13k characters of Bash output (the bash runs: 2-4k).
-- **nux's own mistakes.** Sonnet: 0.8 errors and 0.5 hook blocks a run (`nux help |
-  head`, a `def` wrapping git without `--wrapped`); opus: 0.3. The bash runs: none.
+- **Errors.** Sonnet: 0.8 errors a run, opus: 0.3; the bash runs: none. All 8:
+  - `nux help | head -50`, three times (sonnet): blocked by the hook, nothing may be
+    around the nux call; the next call was a plain `nux help`.
+  - a heredoc without its closing `NU` line (sonnet): blocked by the hook.
+  - `open --raw src/text.js`, twice (sonnet): a file name guessed (it is strings.js);
+    could happen with any shell.
+  - `let ans = ...`, twice (opus): `ans` is a Nushell builtin variable, a parse error.
+  So 4 were the hook's rules, 2 ordinary, 2 Nushell's. (The `def` wrapping git without
+  `--wrapped` was in the pilot only.)
 
 ### What this does and does not show
 
@@ -147,3 +154,43 @@ task the picture is the same: nux more turns and cost on every task, most on ref
    odd messages), several steps on one data set (kept values against re-running).
 3. nux fixes from the runs: a hint for an unknown flag on a `def` that wraps an external
    (`def --wrapped`); whether `nux help | head` should be allowed by the hook.
+
+## Run 2 (2026-11-24): three tweaks to `nux help`, nux runs only
+
+The question: do three lines in the manual change what agents do?
+
+1. An external's output is a value to pipe on as it is (`^git log --format=%h | lines`);
+   `| complete` only for stderr, the exit code or to go on after a failure, "never
+   `| complete | get stdout`". In the 30-day nux log, 1,846 of 8,079 calls use complete,
+   337 of them for a test or tsc parser, 310 exactly `| complete | get stdout`.
+2. "in, nu, env and ans are taken: not names for a variable (`let ans = ...` fails)."
+3. "A def that passes flags on to an external needs --wrapped".
+
+nux help went from 11,156 to 11,659 bytes. Same 16 nux runs as run 1 (4 tasks × sonnet,
+opus × 2), nux built with the new help; results in `results/run2/`.
+
+| | runs | passed | turns | cost/run | duration | Bash calls | errors | blocked | `complete \| get stdout` | `let ans` |
+|---|---|---|---|---|---|---|---|---|---|---|
+| run 1 opus | 8 | 8 | 10.3 | $0.200 | 23.7 s | 3.6 | 2 | 0 | 0 | 2 |
+| run 2 opus | 8 | 8 | 8.9 | $0.190 | 20.7 s | 4.0 | 3 | 1 | 0 | 2 |
+| run 1 sonnet | 8 | 8 | 6.6 | $0.079 | 12.2 s | 4.1 | 6 | 4 | 1 | 0 |
+| run 2 sonnet | 8 | 8 | 7.0 | $0.083 | 12.8 s | 4.4 | 7 | 4 | 1 | 0 |
+
+(errors and blocked: totals over the 8 runs.)
+
+**No measurable effect.**
+
+- `| complete | get stdout` was rare in both runs (1 each): these tasks do not provoke it,
+  so the eval cannot tell. The 30-day log can: count it again in a week.
+- `let ans`: both opus log-analysis runs read the manual, with the new line in it, and
+  still wrote `let ans = ...` when building the answer record. A line in the manual does
+  not beat the name the task suggests. What would: a hint on that error (nux has hints for
+  errors, src/assist/), or nothing, since the next call fixes it.
+- `nux help | head -60`: 4 of 8 sonnet runs again, as in run 1. It is the first call, made
+  before the manual is read, so no manual text can prevent it. The places that can: the
+  instruction that tells agents to run `nux help` (say: as it is, no pipe), or the hook
+  (let `nux help` through with a pager or head).
+- Turns and cost moved a little both ways (opus -1.4 turns, sonnet +0.4): noise at 8 runs.
+
+The lever for nux's own errors is where the agent is when it makes them: before reading
+the manual (the instruction, the hook), or at the error (a hint), not the manual.
