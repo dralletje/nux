@@ -135,7 +135,115 @@ def check_refactor(folder: Path) -> dict:
     }
 
 
-CHECKS = {"git-history": check_git_history, "fix-tests": check_fix_tests, "log-analysis": check_log_analysis, "refactor": check_refactor}
+def full_hash(folder: Path, given) -> str | None:
+    if not isinstance(given, str) or len(given.strip()) < 7:
+        return None
+    try:
+        return git(folder, "rev-parse", given.strip()).strip()
+    except subprocess.CalledProcessError:
+        return None
+
+
+def git_messy_truth(folder: Path) -> dict:
+    breaking = []
+    for record in git(folder, "log", "--no-merges", "--format=%H%x1f%b%x1e").split("\x1e"):
+        if "\x1f" not in record:
+            continue
+        # strip("\n") only: Python counts \x1f as whitespace.
+        sha, body = record.strip("\n").split("\x1f", 1)
+        if any(line.startswith("BREAKING CHANGE:") for line in body.splitlines()):
+            breaking.append(sha)
+    renames = set()
+    for line in git(folder, "log", "-M", "--diff-filter=R", "--name-status", "--format=").splitlines():
+        parts = line.split("\t")
+        if len(parts) == 3 and parts[0].startswith("R"):
+            renames.add((parts[1], parts[2]))
+    by_author = Counter()
+    for record in git(folder, "log", "--no-merges", "--format=%x1e%an", "--", "src/api/").split("\x1e"):
+        if record.strip():
+            by_author[record.strip()] += 1
+    merge = git(folder, "log", "--merges", "--format=%H", "-1").strip()
+    deleted = 0
+    for line in git(folder, "log", "--format=", "--numstat", f"{merge}^1..{merge}^2").splitlines():
+        parts = line.split("\t")
+        if len(parts) == 3 and parts[1].isdigit():
+            deleted += int(parts[1])
+    return {"breaking": set(breaking), "renames": renames, "by_author": dict(by_author), "deleted": deleted}
+
+
+def check_git_messy(folder: Path) -> dict:
+    given = answer(folder)
+    truth = git_messy_truth(folder)
+    breaking = {full_hash(folder, h) for h in (given.get("breaking_commits") or [])}
+    renames = {(r.get("from"), r.get("to")) for r in (given.get("renames") or []) if isinstance(r, dict)}
+    return {
+        "breaking_commits": breaking == truth["breaking"],
+        "renames": renames == truth["renames"],
+        "api_commits_by_author": given.get("api_commits_by_author") == truth["by_author"],
+        "feature_lines_deleted": given.get("feature_lines_deleted") == truth["deleted"],
+    }
+
+
+TRIAGE_FAILING = {
+    ("test/mod07.test.js", "parses dates in March"): "March 31 should stay in March",
+    ("test/mod22.test.js", "rounds half up"): "2.5 should round to 3",
+    ("test/mod35.test.js", "keeps order of equal keys"): "equal keys must keep their order",
+}
+
+
+def check_test_triage(folder: Path) -> dict:
+    given = answer(folder)
+    failing = {}
+    for row in given.get("failing") or []:
+        if isinstance(row, dict):
+            failing[(str(row.get("file", "")).removeprefix("./"), row.get("test"))] = str(row.get("message", ""))
+    untouched = all((folder / "test" / f"mod{m:02d}.test.js").exists() for m in range(40)) and not (folder / "src").exists()
+    return {
+        "failing_tests": set(failing) == set(TRIAGE_FAILING),
+        "messages": all(expected in failing.get(key, "") for key, expected in TRIAGE_FAILING.items()),
+        "skipped": given.get("skipped") == 2,
+        "todo": given.get("todo") == 1,
+        "tests_untouched": untouched,
+    }
+
+
+def csv_join_truth(folder: Path) -> dict:
+    import csv
+
+    customers = {c["id"]: c for c in json.loads((folder / "customers.json").read_text())}
+    rates = json.loads((folder / "rates.json").read_text())
+    with open(folder / "orders.csv", newline="") as f:
+        orders = list(csv.DictReader(f))
+    totals = Counter()
+    for order in orders:
+        customer = customers[order["customer_id"]]
+        if order["date"].startswith("2026") and customer["signup"].startswith("2025"):
+            totals[customer["country"]] += float(order["amount"]) * rates[order["currency"]]
+    top = sorted(totals.items(), key=lambda item: -item[1])[:3]
+    return {
+        "top": [(country, round(eur, 2)) for country, eur in top],
+        "line_breaks": sum(1 for o in orders if "\n" in o["note"] or "\r" in o["note"]),
+        "without": len(set(customers) - {o["customer_id"] for o in orders}),
+    }
+
+
+def check_csv_join(folder: Path) -> dict:
+    given = answer(folder)
+    truth = csv_join_truth(folder)
+    top = given.get("top_countries") or []
+    top_ok = len(top) == 3 and all(
+        isinstance(row, dict) and row.get("country") == country and isinstance(row.get("eur"), (int, float)) and abs(row["eur"] - eur) <= 0.01
+        for row, (country, eur) in zip(top, truth["top"])
+    )
+    return {
+        "top_countries": top_ok,
+        "notes_with_line_breaks": given.get("notes_with_line_breaks") == truth["line_breaks"],
+        "customers_without_orders": given.get("customers_without_orders") == truth["without"],
+    }
+
+
+CHECKS = {"git-history": check_git_history, "fix-tests": check_fix_tests, "log-analysis": check_log_analysis, "refactor": check_refactor,
+          "git-messy": check_git_messy, "test-triage": check_test_triage, "csv-join": check_csv_join}
 
 if __name__ == "__main__":
     task, folder = sys.argv[1], Path(sys.argv[2])

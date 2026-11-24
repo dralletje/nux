@@ -61,7 +61,38 @@ def refactor(folder: Path) -> None:
         path.write_text(text)
 
 
-TASKS = {"git-history": git_history, "fix-tests": fix_tests, "log-analysis": log_analysis, "refactor": refactor}
+sys.path.insert(0, str(Path(__file__).parent))
+import check  # noqa: E402
+
+
+def git_messy(folder: Path) -> None:
+    truth = check.git_messy_truth(folder)
+    answer = {
+        "breaking_commits": sorted(truth["breaking"]),
+        "renames": [{"from": a, "to": b} for a, b in sorted(truth["renames"])],
+        "api_commits_by_author": truth["by_author"],
+        "feature_lines_deleted": truth["deleted"],
+    }
+    (folder / "answer.json").write_text(json.dumps(answer))
+
+
+def test_triage(folder: Path) -> None:
+    failing = [{"file": f, "test": t, "message": m} for (f, t), m in check.TRIAGE_FAILING.items()]
+    (folder / "answer.json").write_text(json.dumps({"failing": failing, "skipped": 2, "todo": 1}))
+
+
+def csv_join(folder: Path) -> None:
+    truth = check.csv_join_truth(folder)
+    answer = {
+        "top_countries": [{"country": c, "eur": e} for c, e in truth["top"]],
+        "notes_with_line_breaks": truth["line_breaks"],
+        "customers_without_orders": truth["without"],
+    }
+    (folder / "answer.json").write_text(json.dumps(answer))
+
+
+TASKS = {"git-history": git_history, "fix-tests": fix_tests, "log-analysis": log_analysis, "refactor": refactor,
+         "git-messy": git_messy, "test-triage": test_triage, "csv-join": csv_join}
 
 if __name__ == "__main__":
     TASKS[sys.argv[1]](Path(sys.argv[2]))

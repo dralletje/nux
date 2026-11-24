@@ -220,7 +220,150 @@ def refactor(folder: Path) -> None:
         (folder / path).write_text(text)
 
 
-TASKS = {"git-history": git_history, "fix-tests": fix_tests, "log-analysis": log_analysis, "refactor": refactor}
+AUTHORS = {
+    "alice": ("Alice Example", "alice@example.com"),
+    "bob": ("Bob Example", "bob@example.com"),
+    "carol": ("Carol Example", "carol@example.com"),
+    "dave": ("Dave Example", "dave@example.com"),
+}
+
+
+def commit_as(folder: Path, message: str, author: str, when: str, *extra: str) -> None:
+    name, email = AUTHORS[author]
+    env = {**os.environ, "GIT_AUTHOR_NAME": name, "GIT_AUTHOR_EMAIL": email, "GIT_COMMITTER_NAME": name,
+           "GIT_COMMITTER_EMAIL": email, "GIT_AUTHOR_DATE": when, "GIT_COMMITTER_DATE": when}
+    git(folder, "add", "-A")
+    git(folder, "commit", "-q", *extra, "-m", message, env=env)
+
+
+def git_messy(folder: Path) -> None:
+    """Commit messages with bodies, pipes, tabs and quotes; a merged branch; two renames.
+
+    Traps: "BREAKING" in a subject (only a body line counts), "BREAKING CHANGE:" in the
+    middle of a body line, a merge commit whose body has one, a rename with an edit.
+    """
+    random.seed(5)
+    git(folder, "init", "-q", "-b", "main")
+    start = {"src/api/user.js": 8, "src/api/orders.js": 8, "src/core/a.js": 12, "src/core/b.js": 6, "docs/notes.md": 10}
+    for path, count in start.items():
+        (folder / path).parent.mkdir(parents=True, exist_ok=True)
+        (folder / path).write_text("".join(f"// {path} line {i}\n" for i in range(count)))
+    commit_as(folder, "Start", "alice", "2026-03-01T09:00:00+00:00")
+    names = list(AUTHORS)
+    clock = [0]
+
+    def when() -> str:
+        clock[0] += 1
+        return f"2026-03-{2 + clock[0] // 3:02d}T{9 + clock[0] % 3 * 3:02d}:00:00+00:00"
+
+    def touch(path: str, n: int) -> None:
+        (folder / path).parent.mkdir(parents=True, exist_ok=True)
+        with open(folder / path, "a") as f:
+            f.write("".join(f"// edit {n}.{i}\n" for i in range(random.randint(1, 4))))
+
+    def message(n: int) -> str:
+        if n % 7 == 3:
+            return f"Change the api ({n})\n\nBREAKING CHANGE: callers must pass an id\n\nMore | with pipes\tand tabs"
+        if n % 5 == 0:
+            return f'Fix "quoted" | piped\tthing {n}\n\nLine one\nThis mentions BREAKING CHANGE: in the middle'
+        if n % 11 == 4:
+            return f"BREAKING: tidy up ({n})"
+        return f"Update things ({n})"
+
+    paths = ["src/api/user.js", "src/api/orders.js", "src/core/a.js", "src/core/b.js"]
+    for n in range(1, 10):
+        touch(random.choice(paths), n)
+        commit_as(folder, message(n), random.choice(names), when())
+    git(folder, "checkout", "-q", "-b", "feature/export")
+    for n in range(100, 106):
+        if n == 101:
+            # Lines deleted: core/a.js shrinks.
+            lines = (folder / "src/core/a.js").read_text().splitlines(keepends=True)
+            (folder / "src/core/a.js").write_text("".join(lines[:-5]))
+        else:
+            touch("src/api/export.js", n)
+        body = "\n\nBREAKING CHANGE: export needs a format" if n == 103 else ""
+        commit_as(folder, f"Export: step {n - 99}{body}", random.choice(names), when())
+    git(folder, "checkout", "-q", "main")
+    for n in range(10, 15):
+        # Not src/core/a.js: the branch deleted its last lines, the merge must not conflict.
+        touch(random.choice([p for p in paths if p != "src/core/a.js"]), n)
+        commit_as(folder, message(n), random.choice(names), when())
+    name, email = AUTHORS["bob"]
+    stamp = when()
+    env = {**os.environ, "GIT_AUTHOR_NAME": name, "GIT_AUTHOR_EMAIL": email, "GIT_COMMITTER_NAME": name,
+           "GIT_COMMITTER_EMAIL": email, "GIT_AUTHOR_DATE": stamp, "GIT_COMMITTER_DATE": stamp}
+    git(folder, "merge", "-q", "--no-ff", "feature/export", "-m", "Merge branch 'feature/export'\n\nBREAKING CHANGE: see the branch", env=env)
+    for n in range(15, 31):
+        if n == 18:
+            git(folder, "mv", "src/api/user.js", "src/api/users.js")
+            paths[0] = "src/api/users.js"
+        elif n == 24:
+            git(folder, "mv", "docs/notes.md", "docs/NOTES.md")
+            with open(folder / "docs/NOTES.md", "a") as f:
+                f.write("one more line\n")
+        else:
+            touch(random.choice(paths), n)
+        commit_as(folder, message(n), random.choice(names), when())
+
+
+def test_triage(folder: Path) -> None:
+    """40 test files of 10 tests that log a lot; 3 fail, 2 skipped, 1 todo.
+
+    Traps: log lines that say "not ok" and "fail".
+    """
+    failing = {7: ("parses dates in March", "March 31 should stay in March"),
+               22: ("rounds half up", "2.5 should round to 3"),
+               35: ("keeps order of equal keys", "equal keys must keep their order")}
+    (folder / "test").mkdir()
+    for module in range(40):
+        lines = ["import { test } from 'node:test'", "import assert from 'node:assert/strict'", ""]
+        for case in range(10):
+            name = f"case {case} of mod{module:02d}"
+            options = ""
+            body = [f"  console.log('[mod{module:02d}] step {step}: ok')" for step in range(4)]
+            body.append("  console.log('not ok yet, retrying once')" if case == 3 else "  console.log('fail-safe engaged')" if case == 6 else "  console.log('done')")
+            check = f"  assert.equal({case} + 1, {case + 1})"
+            if case == 5 and module in failing:
+                name, text = failing[module]
+                check = f"  assert.equal(1, 2, '{text}')"
+            if case == 8 and module in (4, 30):
+                name, options = f"slow path of mod{module:02d}", ", { skip: 'too slow on CI' }"
+            if case == 9 and module == 12:
+                name, options = "streams large files", ", { todo: true }"
+            lines.append(f"test('{name}'{options}, () => {{")
+            lines.extend(body)
+            lines.append(check)
+            lines.append("})")
+        (folder / "test" / f"mod{module:02d}.test.js").write_text("\n".join(lines) + "\n")
+    (folder / "package.json").write_text(json.dumps({"name": "test-triage", "type": "module", "scripts": {"test": "node --test"}}, indent=2) + "\n")
+
+
+def csv_join(folder: Path) -> None:
+    """orders.csv (quoted fields with commas, quotes and newlines), customers.json, rates.json."""
+    import csv
+
+    random.seed(9)
+    countries = ["NL", "DE", "FR", "BE", "ES", "IT", "SE", "PL"]
+    customers = []
+    for n in range(900):
+        year = random.choice([2024, 2025, 2025, 2026])
+        customers.append({"id": f"c{n:04d}", "country": random.choice(countries), "signup": f"{year}-{random.randint(1, 12):02d}-{random.randint(1, 28):02d}"})
+    (folder / "customers.json").write_text(json.dumps(customers, indent=1) + "\n")
+    (folder / "rates.json").write_text(json.dumps({"EUR": 1.0, "USD": 0.9, "GBP": 1.15}) + "\n")
+    notes = ["", "gift", "leave at door, please", 'said "fragile"', "line one\nline two", "a, b, and c", 'mix: "x", y\nz']
+    with open(folder / "orders.csv", "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["id", "customer_id", "date", "amount", "currency", "note"])
+        # Customers that never order: every 9th.
+        buyers = [c["id"] for i, c in enumerate(customers) if i % 9 != 0]
+        for n in range(20000):
+            writer.writerow([f"o{n:05d}", random.choice(buyers), f"{random.choice([2025, 2026])}-{random.randint(1, 12):02d}-{random.randint(1, 28):02d}",
+                             f"{random.uniform(5, 400):.2f}", random.choice(["EUR", "EUR", "USD", "GBP"]), random.choice(notes)])
+
+
+TASKS = {"git-history": git_history, "fix-tests": fix_tests, "log-analysis": log_analysis, "refactor": refactor,
+         "git-messy": git_messy, "test-triage": test_triage, "csv-join": csv_join}
 
 if __name__ == "__main__":
     task, folder = sys.argv[1], Path(sys.argv[2])

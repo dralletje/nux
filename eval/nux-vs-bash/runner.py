@@ -75,9 +75,12 @@ def run_one(task: str, tool: str, model: str, rep: int, work: Path, nux_bin: Pat
         "--output-format", "json",
     ]
     env = dict(os.environ)
-    if tool == "nux":
+    # nux: the instructions as agents in this workspace get them; nux-nofiles: the same
+    # without the rule to edit files with the Read, Write and Edit tools.
+    instructions = {"nux": "nux-instructions.md", "nux-nofiles": "nux-instructions-nofiles.md"}.get(tool)
+    if instructions:
         hooks = {"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": f"python3 {HOOK}"}]}]}}
-        command += ["--settings", json.dumps(hooks), "--append-system-prompt", (HERE / "nux-instructions.md").read_text()]
+        command += ["--settings", json.dumps(hooks), "--append-system-prompt", (HERE / instructions).read_text()]
         env["PATH"] = f"{nux_bin}:{env['PATH']}"
     started = time.time()
     try:
