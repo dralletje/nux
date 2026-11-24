@@ -751,6 +751,25 @@ fn wait_for_a_file_and_a_process() {
     child.wait().unwrap();
 }
 
+/// `git show-file`: a file at a revision, with paths from the current directory.
+#[test]
+fn git_show_file_reads_a_file_at_a_revision() {
+    let repo = git_repo("show-file");
+    std::fs::create_dir_all(repo.join("src")).unwrap();
+    std::fs::write(repo.join("src/a.txt"), "first\n").unwrap();
+    for args in [&["add", "."][..], &["commit", "-q", "-m", "a"]] {
+        let status = Command::new("git").args(["-c", "user.name=t", "-c", "user.email=t@t"]).args(args).current_dir(&repo).status();
+        assert!(status.unwrap().success());
+    }
+    std::fs::write(repo.join("src/a.txt"), "second\n").unwrap();
+    assert_eq!(nux_in(&repo, "git show-file HEAD src/a.txt").stdout, "first\n");
+    assert_eq!(nux_in(&repo, "git show-file HEAD:src/a.txt").stdout, "first\n");
+    assert_eq!(nux_in(&repo.join("src"), "git show-file HEAD a.txt").stdout, "first\n");
+    let run = nux_in(&repo, "git show-file HEAD src/nope.txt");
+    assert_eq!(run.status, 1);
+    assert!(run.stdout.contains("does not exist in 'HEAD'"), "{}", run.stdout);
+}
+
 /// `timeout`: the block's value, input and own error; stopped, with the commands it started,
 /// when the time is up.
 #[test]
@@ -964,9 +983,12 @@ fn an_unknown_flag_lists_the_flags_there_are() {
     let repo = git_repo("status-short");
     assert_eq!(nux_in(&repo, "git status --short | length").status, 0);
     assert_eq!(nux_in(&repo, "git status --porcelain | length").status, 0);
-    let run = nux(&[], "git log --oneline");
-    assert!(run.stdout.contains("The flags of `git log`:"), "{}", run.stdout);
-    assert!(run.stdout.contains("`^git log --oneline`"), "{}", run.stdout);
+    // git's --oneline: only short hash and subject.
+    let run = nux_in(&repo, "git log --oneline | columns");
+    assert_eq!(run.stdout, "[short,subject]\n", "{}{}", run.stdout, run.stderr);
+    let run = nux(&[], "git log --pretty=short");
+    assert!(run.stdout.contains("nux's git log is a table: --oneline"), "{}", run.stdout);
+    assert!(run.stdout.contains("`^git log --pretty=short`"), "{}", run.stdout);
     // A command of a module the same code `use`s: its own flags, not those of Nushell's
     // `http` (which has --full, and so was "Did you mean --full?" for --full).
     let run = nux(&[], "use nux/cookie-jar\ncookie-jar http /tmp/jar get https://example.com --full");

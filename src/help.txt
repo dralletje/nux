@@ -145,6 +145,8 @@ COMMANDS THAT GIVE TABLES   (examples for each: nux help <command>)
                                             text with context (also from --lines rows: only
                                             the hunks those lines are in)
       git info                              root, branch, head, upstream, ahead, behind, clean, remotes
+      git show-file HEAD~3 src/a.ts         a file's text as it was at a commit or branch (paths
+                                            from here; several paths: a table of path, text)
       git status | where ... | git add      stage the rows (or paths); gives git status after
       ^pnpm typecheck | complete | from tsc
                                             TypeScript errors: file, line, column, category,

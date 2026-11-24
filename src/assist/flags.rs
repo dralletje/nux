@@ -61,6 +61,7 @@ fn other_tool(command: &str, flag: &str) -> Option<&'static str> {
         ("search", "n" | "line-number") => "`-n`: not needed, `line` is always there.",
         ("search", "r" | "R" | "recursive") => "`-r`: not needed, folders are always searched through.",
         ("search", "c" | "count") => "`-c`: --files gives one row per file with its number of matches.",
+        ("git log", "pretty" | "format") => "nux's git log is a table: --oneline gives only `short` and `subject`; any column with `select`.",
         ("search", "e" | "regexp") => "`-e`: one pattern; for either of two, 'a|b'.",
         ("search", "w" | "word-regexp") => "`-w`: write the word between \\b in the pattern: '\\bword\\b'.",
         ("search", "E" | "P" | "extended-regexp" | "perl-regexp") => "The pattern is always a regular expression (Rust syntax); --literal for plain text.",

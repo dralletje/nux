@@ -1,7 +1,7 @@
 # git, with tables as results. git itself has no structured output.
 #
 # In nux, `git` is this module: `git log`, `git status`, `git diff`, `git hunks`,
-# `git info`, `git add` (and `git changes`, another name for `git diff`). Anything else
+# `git info`, `git add`, `git show-file` (and `git changes`, another name for `git diff`). Anything else
 # (`git commit`, `git status --short`) does not fall through to git itself: `git` refuses it
 # and says to use `^git`, so a call never gets git's text where it expected a table. The
 # prelude takes it in with `export use git.nu` (no `*`), which names the commands `git ...`.
@@ -19,7 +19,7 @@ def ours []: nothing -> string {
 # `^git ...` in the nux log: mostly `diff --stat` and `rev-parse`.
 const INSTEAD = {
   diff: "what changed per file: git diff (--staged, a file, main...HEAD); per line: git diff --lines; to read it: git diff | where path =~ x | git hunks | get text"
-  show: "what a commit changed: git diff <commit>~1 <commit>; to read it: ... | git hunks | get text"
+  show: "a file as it was at a commit: git show-file <commit> <path>; what a commit changed: git diff <commit>~1 <commit>; to read it: ... | git hunks | get text"
   ls-files: "changed and untracked files: git status"
   rev-parse: "the commit, branch, upstream and top directory: git info"
   branch: "the current branch, its upstream, ahead and behind: git info"
@@ -115,6 +115,7 @@ def from-here [here: list<string>]: string -> string {
 @example "What changed this week" { git log --since "1 week ago" | select short date author subject }
 @example "Commits that touched a directory, with the files of each" { git log --files src | select short subject files }
 @example "What a branch adds to main" { git log --range main..HEAD }
+@example "The last five commits, short hash and subject (git's --oneline)" { git log --max 5 --oneline }
 @example "Who commits most" {
   git log
   | group-by author --to-table
@@ -131,6 +132,7 @@ export def log [
   --range (-r): string   # A revision or range, e.g. main..HEAD (default: from HEAD back)
   --files (-f)           # Add `files`: per commit a table of path, added, deleted
   --body (-b)            # Add `body`: the rest of the commit message
+  --oneline (-o)         # Only `short` and `subject`, as git's --oneline (with --files/--body: those too)
 ]: nothing -> table {
   # A record starts with 1e; fields end with 1f. What follows the last field is the file list.
   let format = "%x1e%H%x1f%h%x1f%aI%x1f%an%x1f%ae%x1f%D%x1f%P%x1f%s%x1f%b%x1f"
@@ -143,7 +145,7 @@ export def log [
   let arguments = $arguments ++ [--] ++ $paths
   # Only --files has paths to give from the current directory (another git process).
   let here = (if $files { here } else { [] })
-  run-git $arguments | split row "\u{1e}" | skip 1 | each {|record|
+  let commits = (run-git $arguments | split row "\u{1e}" | skip 1 | each {|record|
     let fields = ($record | split row "\u{1f}")
     let commit = {
       hash: $fields.0
@@ -157,6 +159,48 @@ export def log [
     }
     let commit = if $body { $commit | insert body ($fields.8 | str trim) } else { $commit }
     if $files { $commit | insert files ($fields.9 | parse-numstat "\n" $here) } else { $commit }
+  })
+  if $oneline {
+    let wanted = ([short subject] ++ (if $body { [body] } else { [] }) ++ (if $files { [files] } else { [] }))
+    $commits | select ...$wanted
+  } else {
+    $commits
+  }
+}
+
+# A file's text as it was at a commit, branch or tag (git's `show <rev>:<path>`).
+#
+# Paths are from the current directory, as everywhere in nux (not from the repository's
+# root, as git's `<rev>:<path>` reads them). One path gives its text; several give a table:
+# path, text. `<rev>:<path>` in one argument works too. A path that was not there at that
+# revision is an error that says so.
+@search-terms "git show" "file at commit" "old version" ls-tree cat-file
+@example "A file as it was three commits ago" { git show-file HEAD~3 src/router.ts }
+@example "As git writes it" { git show-file main:src/router.ts | lines | first 40 }
+@example "Two files on another branch, searched" { git show-file origin/main src/a.ts src/b.ts | each {|file| $file.text | search 'export' | insert path $file.path } | flatten }
+export def show-file [
+  revision: string   # A commit, branch or tag (HEAD~3, main, 03d3a93), or <rev>:<path>
+  ...paths: string   # Files, from the current directory
+]: nothing -> any {
+  let split = ($revision | parse --regex '^(?<rev>[^:]+):(?<path>.+)$')
+  let revision_only = if ($split | is-empty) { $revision } else { $split.0.rev }
+  let paths = if ($split | is-empty) { $paths } else { [$split.0.path] ++ $paths }
+  if ($paths | is-empty) {
+    error make {msg: "git show-file: which file?", help: "git show-file <rev> <path>, e.g. git show-file HEAD~3 src/router.ts"}
+  }
+  let root = (run-git [rev-parse --show-toplevel] | str trim)
+  let read = {|path|
+    let from_root = ($path | path expand | path relative-to $root)
+    let run = (^git -c core.quotepath=off show $"($revision_only):($from_root)" | complete)
+    if $run.exit_code != 0 {
+      error make {msg: $"git show-file: ($path) at ($revision_only)", help: ($run.stderr | str trim)}
+    }
+    $run.stdout
+  }
+  if ($paths | length) == 1 {
+    do $read $paths.0
+  } else {
+    $paths | each {|path| {path: $path, text: (do $read $path)} }
   }
 }
 
