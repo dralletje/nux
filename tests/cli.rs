@@ -88,6 +88,17 @@ fn help_is_compact_and_keeps_what_agents_use() {
     }
 }
 
+/// `nux help capped` is what an agent reads: what it does and returns, not "this file".
+#[test]
+fn help_capped_says_what_it_returns() {
+    let run = nux(&["help", "capped"], "");
+    assert_eq!(run.status, 0, "{}{}", run.stdout, run.stderr);
+    assert!(!run.stdout.contains("this file"), "{}", run.stdout);
+    for part in ["killed_by", "peak_memory", "capped --mem 1500MB --time 40sec pnpm exec tsc -b"] {
+        assert!(run.stdout.contains(part), "nux help capped lacks {part}:\n{}", run.stdout);
+    }
+}
+
 /// nux's default form, made for reading (src/readable.rs, "v0" in docs/output-format-eval.md).
 #[test]
 fn values_are_printed_for_reading() {

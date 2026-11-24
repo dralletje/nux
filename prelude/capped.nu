@@ -6,7 +6,8 @@
 # The memory limit is enforced by the kernel (a cgroup made with `systemd-run --user
 # --scope`), for the command and everything it starts: when they go over it together, the
 # kernel kills the biggest one. Nothing is polled, so a fast spike cannot slip through.
-# The time limit is `timeout`: SIGTERM at the limit, SIGKILL two seconds later.
+# The time limit is coreutils' `timeout` (not nux's): SIGTERM at the limit, SIGKILL two
+# seconds later.
 #
 # Returns a record instead of failing, so a runaway is a result you can look at:
 #     exit_code    the command's exit code (137 when killed, 124 when out of time)
@@ -18,7 +19,13 @@
 # Only for external commands: a Nushell closure runs inside the session's own process,
 # which cannot be put in a cgroup of its own.
 
-# Run an external command under a memory and a time limit; see the top of this file.
+# Run an external command under a hard memory limit and a time limit.
+#
+# The kernel enforces the memory limit for the command and everything it starts, and kills
+# the biggest when they go over it together. Returns a record instead of failing: exit_code
+# (137 killed, 124 out of time), killed_by ("memory", "time" or null), peak_memory,
+# duration, stdout, stderr. Only for external commands, not Nushell code.
+@example "tsc with at most 1.5 GB, for at most 40 seconds" { capped --mem 1500MB --time 40sec pnpm exec tsc -b }
 export def --wrapped main [
   --mem (-m): filesize = 2GB    # memory limit for the command and its children together
   --time (-t): duration = 2min  # time limit
