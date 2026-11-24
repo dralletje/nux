@@ -1,278 +1,130 @@
 Run commands and Nushell code. Every call is a fresh Nushell with nux's own commands.
 
 RUN SOMETHING
-  Code goes in on stdin, with a quoted heredoc: nothing in it needs escaping for the shell.
-  Say why you run it, in a few words, with -r (see below).
+  Code on stdin, in a quoted heredoc (nothing needs escaping), with -r: why, in a few words.
       nux -r 'find the large files' <<'NU'
-      let big = (ls **/* | where size > 1mb)
-      $big
-      | sort-by size --reverse
+      ls **/*
+      | where size > 1mb
       | select name size
       NU
-  One short command is the same thing with one line. When that line has no single quotes
-  of its own, a here-string is shorter:
-      nux <<< 'git status'
-  There is no other way to give code (no -c).
+  One line without single quotes of its own: nux <<< 'git status'. There is no -c.
   It runs in the directory you call nux from.
 
-WRITE IT ON MANY LINES
-  Write nux code like a script, not like a shell one-liner.
-    - Flags in their long form: `search x --context 2 --ignore-case`, not `-C 2 -i`. A call
-      is read again later, by you and by people, and the long name says what it does.
-    - A pipeline with a closure, with more than 4 steps, or hard to read on one line in
-      any other way: every step on a line of its own, the line starting with `|`.
-    - `if`, `else`, `for`, `while` and `loop`: their blocks always over several lines,
-      also for one simple operation. The same for a closure that does more than one thing.
-    - Errors say on which line they are: with one step per line, that names the step.
+WRITE IT AS A SCRIPT
+  Long flags (--context 2, not -C 2). A pipeline with a closure or over 4 steps: one step
+  per line, starting with `|`. if/else/for/loop blocks always over several lines. Errors
+  name their line, so this names the step. A short pipeline stays on one line.
       ls **/*
       | where type == file
-      | each {|file|
-          {name: $file.name, mb: ($file.size / 1mb)}
-        }
+      | each {|file| {name: $file.name, mb: ($file.size / 1mb)} }
       | sort-by mb --reverse
-      | first 10
 
-      if ($found | is-empty) {
-        print "nothing found"
-      } else {
-        $found | length
-      }
-  A short pipeline without a closure stays on one line: `git status | get path`.
-
-  What you get back:
-    - The value of every statement, in order. One value alone comes as it is; with more,
-      each comes under a line that names its statement:
-          ── line 1: open package.json | get version
-          0.2.0
-          ── line 2: ^git log --oneline -1
-          9caf6b7 Fixes from a day of agent use
-      A `let`, `def`, `use`, `for`, an assignment, a `print` or a `cd` gives no value. To
-      leave a statement's value out: `... | ignore` (an external command: `o> /dev/null`).
-    - Text as it is. Other values in a form made for reading:
-        a table             a Markdown table (header again every 20 rows); a wide one, or
-                            one with lists or records in it: `12 rows`, then `## 0`, `## 1`,
-                            ... per row (counting from 0, as `get 0` does)
-        a record            `key: value` lines; text over several lines in a ``` block
-        a list of texts     `12 items`, then one item per line
-        text inside those   as it is, or in "..." with JSON escapes when it could be misread
-                            (empty, spaces at an end, a number, true/false/null, a newline);
-                            so text without quotes is exactly what it says, and every line
-                            of a list is one item
-        durations, sizes    `~1min 28sec`, `~4.512MB` (`~`: rounded)
-        anything else       NUON, Nushell's notation (`[1,2,3]`, `0..<10`, nested values)
-      The exact value, with its types: `| to nuon`, or `kept` for a large one.
-      NUX_FORMAT=nuon in the environment gives NUON for everything.
-    - An external command (`^git push`, `pnpm build`): what it printed. When it fails, all
-      its output is printed, with "exited with code N", and the call ends there (exit status
-      1, nothing after it runs).
-    - What a command wrote to stderr is marked, with the command: `stderr (git push): ...`.
-      To silence a chatty command: `^npm ls e> /dev/null` (it still fails the call if it
-      fails). To use stderr yourself: `let run = (^cmd | complete)` gives `$run.stderr`,
-      `$run.stdout` and `$run.exit_code`; `^cmd e>| lines` pipes stderr on.
-    - That holds for commands on their own at the top level of the code. One inside a loop,
-      a closure or a `def` also ends the call when it fails, but without its output; to
-      get that: `^cmd | complete | check-exit "cmd"`.
-    - To see something on the way, put `show` in the pipeline: it prints the value and
-      passes it on. With a closure it prints what the closure makes of the value, and still
-      passes on all of it:
-          ls **/*
-          | show { length }
-          | where size > 1mb
-          | show { select name size }
-          | get name
-    - A result too large to print (over 10 KiB) is kept: you see its type, size and first
-      rows, and get all of it in a next call with `kept result-<n>`.
-    - JSON instead of NUON: end the code with `| to json --raw`.
-    - nux has no time limit of its own: a call runs until it is done, or until whatever
-      runs nux stops it (which also ends the commands the call started). For a long build
-      or install, give your own tool call more time.
-      -r <reason>    why you run this, in a few words: nux -r 'find the failing test' <<'NU' ...
-                     It changes nothing about the call. Every call is recorded (see MORE),
-                     and the reason is what tells us what you were after.
+WHAT YOU GET BACK
+  Every statement's value, in order; with several, each under `── line N: <code>`.
+  let, def, use, for, print and cd give none; `| ignore` drops one.
+    table    Markdown (header every 20 rows); wide or nested: `12 rows`, `## 0`, `## 1`, ...
+    record   `key: value` lines
+    list     `12 items`, one per line
+    text     as is; in "..." (JSON escapes) only when it could be misread: empty, padded,
+             a number, true/false/null, a newline
+    sizes    `~4.512MB`, `~1min 28sec` (~: rounded)
+    other    NUON. Exact types: `| to nuon`; JSON: `| to json --raw`; NUX_FORMAT=nuon: all
+  An external command: its output. When it fails: all of it, "exited with code N", and the
+  call stops. Inside a loop, closure or def: `^cmd | complete | check-exit "cmd"` for its
+  output. stderr is marked `stderr (cmd): ...`; `e> /dev/null` silences it, `e>| lines`
+  pipes it on, `complete` gives {stdout, stderr, exit_code}.
+  `| show` (or `| show { length }`) prints a value on the way and passes it on.
+  No time limit of its own: give your tool call more time for a long build or install.
 
 NOTHING CARRIES OVER, EXCEPT WHAT IS KEPT
-  Each call starts from scratch: variables, `def`s and `cd` of one call are gone in the
-  next. So do in one call what belongs together, and look at a result in the same call
-  that made it (`show` helps). What one call keeps, a next one gets back, types and all:
+  Variables, defs and cd end with the call: do in one call what belongs together.
       kept                          what is kept: name, size, when
-      kept result-3 | first 20      a result that was too large to print
-      let big = (kept big)          a variable of a call that FAILED: nux keeps those
+      kept result-3 | first 20      a result too large to print (over 10 KiB)
+      let big = (kept big)          a variable of a call that FAILED
       $rows | kept --save rows      keep a value yourself; later: kept rows
-  Kept per agent conversation, in {kept_dir}.
+  Per agent conversation, in {kept_dir}.
 
 YOUR OWN COMMANDS
-  ~/.config/nux/prelude.nu runs at the start of every call (its `def`s and `$env` are there).
-  Modules, loaded with `use`:
-      use home/tools                ~/.config/nux/tools.nu (or tools/mod.nu)
-      use project/checks            .nu/checks.nu in the project: the nearest folder upwards
-                                    with a .git
-  Inside them, use each other by those names (`use project/checks`), not by a relative path.
-  ($XDG_CONFIG_HOME/nux instead of ~/.config/nux when that is set.)
-
-TRYING CODE
-  To run code apart from your own call, as `nu -c` would but with data back:
-      try-nu 'open nope.json'                  {value, error, printed, stderr}
-      try-nu -I [scripts] 'use tools.nu; tools check'
-                                               a module read fresh, after you changed it
-      [1 2 3] | try-nu '$in | math sum'        the input is the code's $in
-  `error` is null, or a record: msg, code, help, line, column, text. Use it to test
-  modules, compare `use` with `source`, or try code that may fail.
+  ~/.config/nux/prelude.nu runs at the start of every call. Modules: `use home/tools`
+  (~/.config/nux/tools.nu), `use project/checks` (.nu/checks.nu at the git root).
+  try-nu 'code' runs code apart, giving {value, error, printed, stderr}: nux help try-nu
 
 COMMANDS THAT GIVE TABLES   (examples for each: nux help <command>)
-      search 'pattern' src --glob '*.ts'    file contents (ripgrep): file, line, text. Line
-                                            numbers always, folders always searched through.
-                                            What .gitignore ignores (node_modules, dist) is
-                                            left out already; --all to search it too.
-                                            --context 3 (--before-context, --after-context),
-                                            --only-matching, --files (counts per file)
-      search 'pattern' src --context 2 | where file !~ test | to grep
-                                            rows of search or ast-find, to read: one text,
-                                            as grep prints it (`file:line:text`, lines
-                                            around a match `file-line-text`, `--` between)
+      search 'pattern' src --glob '*.ts'    file contents (ripgrep): file, line, text.
+                                            .gitignored files left out (--all: in);
+                                            --context 3, --only-matching, --files
+      search 'pattern' --context 2 | to grep
+                                            rows as grep prints them, to read
       ast-find --lang ts 'console.log($$$A)' src
-                                            code by its structure (ast-grep): file, line, text,
-                                            vars. With --rewrite '...' each row also gets its
-                                            replacement; look, filter, then: | ast-apply.
-                                            Only what the pattern names is replaced: the `;`
-                                            after `return $X` stays (column `trailing`).
-                                            For a change across many files, not a regex:
-          ast-find -l ts 'expect($A).toBe($B)' test --rewrite 'assert.equal($A, $B)' | ast-apply
-      git log --since "1 week ago"          commits: hash, date, author, subject, ... (--files)
+                                            code by structure (ast-grep); with --rewrite
+                                            '...', then | ast-apply: a change in many files
+      git log --since "1 week ago"          commits: hash, short, date, author, subject
+                                            (--files, --body, --oneline, --range main..HEAD)
       git status                            changed files: path, staged, unstaged
-      git diff                              what changed per file: path, added, deleted, versions
-                                            (--staged, a path, HEAD~1 HEAD, main...HEAD)
-      git diff --lines                      per changed line: path, kind, old, new, text, hunk, at
+      git diff                              per file: path, added, deleted (--staged, a
+                                            path, HEAD~1 HEAD, main...HEAD); --lines: per
+                                            line
       git diff | where path =~ cli | git hunks | get text
-                                            to READ a diff: the hunks of the rows piped in, as
-                                            text with context (also from --lines rows: only
-                                            the hunks those lines are in)
-      git info                              root, branch, head, upstream, ahead, behind, clean, remotes
-      git show-file HEAD~3 src/a.ts         a file's text as it was at a commit or branch (paths
-                                            from here; several paths: a table of path, text)
-      git status | where ... | git add      stage the rows (or paths); gives git status after
+                                            to READ a diff: the hunks of the rows piped in
+      git info                              root, branch, head, upstream, ahead, behind, ...
+      git show-file HEAD~3 src/a.ts         a file's text at a commit (paths from here)
+      git status | where ... | git add      stage the rows; gives git status after
+  `git` is only these; anything else (`git commit`, `git status --short`) is an error: git
+  itself is `^git commit -m "..."`. pnpm, docker and the rest work as in any shell.
       ^pnpm typecheck | complete | from tsc
-                                            TypeScript errors: file, line, column, category,
-                                            code, message. From whatever the project runs tsc
-                                            with: its script, ^npx tsc --noEmit, a build. Do
-                                            not read tsc's text. Give it all of `complete`
-                                            (not `get stdout`): a failure without errors is
-                                            then an error, never an empty table.
+                                            TypeScript errors: file, line, column, code,
+                                            message. Give it all of `complete`, not stdout.
       ^node --test --test-reporter=tap | complete | from tap
-                                            test results: name, status, duration, file, line,
-                                            error. For a package script:
-          with-env {NODE_OPTIONS: "--test-reporter=tap"} {
-            ^pnpm test | complete
-          }
-          | from tap
-                                            (`from node-26-test` reads Node 20+'s default
-                                            output instead, without the option.)
+                                            test results: name, status, file, line, error.
+                                            Package script: with-env {NODE_OPTIONS:
+                                            "--test-reporter=tap"} { ^pnpm test | complete }
       ^cargo test | complete | from cargo-test
-                                            the same table for Rust's tests; a failure's file
-                                            and line from its panic. Also from bun-test (bun
-                                            writes its report to stderr: give it all of
-                                            `complete`) and from swift-test. All of them
-                                            (nux/test-format): nux find "test results"
-      ports                                what listens where: port, pid, name, command, cwd
-      wait-for url http://localhost:8888/   wait until a server answers: any status, a 404 too
-                                            (--status [200] for only those)
-      wait-for port 5432                    until something listens on the port
-      wait-for file out.log --contains Done until a file is there, has that text in it, or
-                                            (--stable 5sec) has stopped growing
-      wait-for pid 12345                    until that process has ended
-                                            Not sleep and look again, not curl in a loop.
-                                            A wait has no time limit of its own: see timeout.
-                                            Stopped, it says on stderr what it last saw.
-      timeout 2min { wait-for url ... }     the one time limit, around any code: the block
-                                            is stopped (its commands too) when time is up
-  `git` is nux's own: only the table commands above. `git` alone lists them, and which of
-  them to use instead of reading `^git diff`, `^git rev-parse` and the like. Anything else,
-  `git commit` or `git status --short`, is an error: git itself is `^git`, as in
-  `^git commit -m "..."`. pnpm, docker and the rest work as in any shell: `pnpm build`.
-
-  Also there, for text: `edit-file <path> <old> <new>` replaces exact text and fails when it
-  is not there exactly once (a table of old/new: several edits, all or nothing).
-
-  With `use` first (nux help <command> after it):
-      use nux/cookie-jar                    http calls that keep cookies, like a browser (a login):
-                                            cookie-jar new, cookie-jar http, ...
-      use nux/capped                        an external command under a hard memory and time
-                                            limit: capped --mem 1GB --time 1min pnpm build
-      use nux/pnpm                          pnpm with tables back: a script in every package,
-                                            the packages, outdated, why: nux help pnpm
+                                            the same for from bun-test, from swift-test,
+                                            from node-26-test: nux find "test results"
+      ports                                 what listens: port, pid, name, command, cwd
+      wait-for url http://localhost:8888/   until it answers (--status [200]: only those);
+                                            also wait-for port 5432, wait-for pid 123,
+                                            wait-for file out.log --contains Done (--stable)
+      timeout 2min { wait-for url ... }     the one time limit, around any code
+      edit-file <path> <old> <new>          replace text found exactly once (a table of
+                                            old/new: several edits, all or nothing)
+  With `use` first, then nux help <name>:
+      use nux/cookie-jar                    http calls that keep cookies (a login)
+      use nux/capped                        a command under a hard memory and time limit
+      use nux/pnpm                          pnpm with tables: a script in every package,
+                                            packages, outdated, why
 
 OTHER TOOLS ALREADY SPEAK JSON
-  Ask for it and parse it:
-      ^docker ps --format json | from json --objects       (also: images, volume ls, ...)
-      ^docker inspect <name> | from json
-      ^pnpm ls --json --depth 0 | from json
-      ^pnpm outdated --format json | complete | get stdout | from json    (exits 1 if any)
-      ^npm view <package> versions --json | from json
-      open package.json | get scripts                      (open reads json, yaml, toml, csv,
-                                                            xlsx and sqlite files as data)
-      http get <url>                                       (a JSON response is parsed already)
-  `from json --objects` is for one JSON object per line.
-  In place of curl, for the status of a page (not curl -s -o /dev/null -w "%{http_code}"):
-      http get --full --allow-errors <url> | get status    (also headers and body; for
-                                                            redirects: --redirect-mode manual)
-  The files in a zip, one per line: ^unzip -Z1 <file.zip> | lines
+      ^docker ps --format json | from json --objects        (one JSON object per line)
+      ^pnpm outdated --format json | complete | get stdout | from json   (exits 1 if any)
+      open package.json | get scripts       (also yaml, toml, csv, xlsx, sqlite as data)
+      http get <url>                        (JSON already parsed; --raw for text)
+      http get --full --allow-errors <url> | get status    (not curl -w "%{http_code}";
+                                            redirects: --redirect-mode manual)
 
-TRY NUSHELL BEFORE PY
-  Before reaching for `py` or `js`, try writing it in Nushell. It is easier to reason about,
-  for you and for the person reading along: the data stays a typed table you can look at
-  between steps (`show`), and there is no second language and its quoting in between.
-  Text and regex:
-      $text | parse --regex '(?<key>\w+)=(?<value>\S+)'    every match, as a table
-      str replace -r, split row, find -r, =~                (nux find str for more)
-  State carried across rows: `mut` and a `for` loop.
-      mut seen = {}
-      for r in $rows {
-        let before = ($seen | get -o $r.key | default 0)
-        $seen = ($seen | upsert $r.key ($before + 1))
-      }
-  A closure (each, where, reduce) cannot change a `mut`: that is a parse error, and the
-  reason to use `for`, not the reason to switch to `py`.
-
-PYTHON AND JAVASCRIPT
-  For a library that Nushell does not have, `py` and `js` run Python or JavaScript (Node)
-  code on the pipeline input, which the code sees as `data`, and return the value of its
-  last expression as a Nushell value. So a library of either language fits into a pipeline:
-      nux <<'NU'
-      ls | select name size | py r#'
-      import statistics
-      {"files": len(data), "median": statistics.median(r["size"] for r in data)}
-      '#
-      open config.yaml --raw | js 'require("yaml").parse(data)'
-      NU
-  More values go in by name with --with, instead of into the code's text: each key is
-  defined in the code under that name, next to `data`:
-      ls | js --with {limit: 1kb} 'data.filter((f) => f.size.bytes > limit.bytes).length'
-  Values keep their type both ways: datetime, duration, filesize, binary, record, table.
-  In `js` a datetime is a Temporal.ZonedDateTime, a duration a Temporal.Duration, and a file
-  size a Nu.FileSize (`.bytes`, `.kb`, `.mb`, `.gb`). `js` needs Node 26 or newer, finds
-  packages from the working directory (a project's node_modules), and with a top-level
-  `await` needs `return` for its result. Details: nux help py, nux help js
+NUSHELL FIRST, THEN PY OR JS
+  Text: `parse --regex '(?<key>\w+)=(?<value>\S+)'`, str replace -r, split row. State
+  across rows: `mut` and a `for` loop (a closure cannot change a `mut`).
+  For a library Nushell lacks, `py` and `js` run code on the input as `data`, values keep
+  their types: ls | js --with {limit: 1kb} 'data.filter((f) => f.size.bytes > limit.bytes)'
+  Details: nux help py, nux help js
 
 MORE YOU CAN DO WITH A TABLE
-      $rows | to md --pretty                 a Markdown table, for a report to a person
-      $rows | to csv | save out.csv          (also: to json, to yaml, to xlsx via save)
-      $rows                                  how many of each status
-      | group-by status --to-table
-      | each {|group|
-          {status: $group.status, n: ($group.items | length)}
-        }
-  SQL, when a query is easier to write than a pipeline: put the table in an SQLite file.
-      $rows | into sqlite /tmp/work.db --table-name rows
-      open /tmp/work.db | query db "select status, count(*) as n from rows group by status"
+      $rows | to md --pretty                a Markdown table, for a person
+      $rows | to csv | save out.csv         (also to json, to yaml)
+      $rows | group-by status --to-table    groups: each {|g| {status: $g.status, n:
+                                            ($g.items | length)} }
+      $rows | into sqlite /tmp/w.db --table-name rows; open /tmp/w.db | query db "..."
 
 FROM BASH
       mkdir -p a/b                  mkdir a/b
       rm -rf dir                    rm -r dir
-      cat file                      open --raw file    (open file: json, yaml, toml, csv as data)
-      cat notes.md                  open --raw notes.md (without --raw: a table of its elements)
+      cat file                      open --raw file    (without --raw: json, yaml as data)
+      cat notes.md                  open --raw notes.md (without --raw: a table of elements)
       grep pat file                 search pat file    (a value: where $it =~ pat)
-      sed 's/a/b/'                  str replace a b    (-r for a regex, -a for every match)
+      sed 's/a/b/'                  str replace a b    (-r: a regex, -a: every match)
       for f in *.md; do ...         for f in (glob *.md) { ... }
-      $(cmd)                        (cmd)              (...(cmd) spreads a list as arguments)
+      $(cmd)                        (cmd)              (...(cmd) spreads a list as args)
       echo $PATH                    $env.PATH
       export FOO=bar                $env.FOO = "bar"
       FOO=bar ./bin                 FOO=bar ./bin, or with-env {FOO: bar} { ./bin }
@@ -287,46 +139,25 @@ FROM BASH
       a long \ line                 wrap it in ( ... ), or one step per line starting with |
 
 LOOK THINGS UP   (Nushell changes between versions; check before guessing)
-      nux find <word>         commands whose name or description mentions the word
-      nux help <command>      usage, flags and examples, e.g.: nux help str replace
+      nux find <word>               commands whose name or description mentions it
+      nux help <command>            usage, flags and examples: nux help str replace
 
 GOOD TO KNOW
-  - A failed call prints the error with its place in the code and exits with status 1.
-  - External commands get no terminal, and no stdin unless you pipe a value into them, so
-    nothing interactive (`input`, pagers, editors, password prompts). A server or anything
-    else that keeps running does not belong in a call: the call would not end. Start it with
-    your harness's way to run a command in the background (Claude Code: run_in_background),
-    not in nux, then `wait-for url` (or `port`, `file`) it in a call, in a `timeout`.
-  - Strings: '...' and r#'...'# have no escapes; "..." has \n \t \" \\ and \u{1b} (not
-    \u001b). A value in text needs both the $ and the ( ):
-    $"hello ($name)". "hello $name" stays as written. Colors out of text: `ansi strip`.
-    A regular expression goes in '...' (search 'a\.b'; in "..." `\.` is an error). A ' in
-    text: "it's" or r#'it's'#; bash's '"'"' is five characters here.
-  - A flag with a value from a variable is one string: ^mysql $"--password=($pw)" db
-    (`-p $pw` would be two arguments). External commands see environment variables
-    ($env.X, with-env), not `let` variables.
-  - In $"..." every ( ) is code that runs, also in what was meant as text: $"Fixed (see
-    notes)" runs a command `see`. For ( ) as text write \( \), or use a raw string, in which
-    nothing runs. Longer text, like a commit message, always as a raw string:
-        let message = r#'Fix the footer
-
-        The cookie was not cleared (fixed). It's set in root.tsx.'#
-        $message | ^git commit -F -
-  - `where name =~ 'x'` fails on a row where name is null: `where name != null and name =~ 'x'`.
-  - `ls **/*` leaves out hidden files (`--all` for them); `glob **/*` has them, .git too:
-    glob **/*.rs --exclude [**/target/** **/.git/**]
-    glob gives absolute paths, folders too. Files only, from here: glob **/*.ts --no-dir |
-    path relative-to (pwd). Several patterns: braces, glob {src,test}/**/*.ts.
-    Nushell's `find` filters a value; it does not look for files.
-  - Columns of text from a command, as a table: ^ps -o pid,comm | detect columns
-    (--guess when a header has spaces in it, as in ^df -h)
-  - `http post -t application/json <url> {key: value}`: the whole MIME type (`-t json` does
-    not work). `http get --raw` gives the text unparsed.
-  - `job spawn { ... }` runs in the background until the call ends, not longer. In it,
-    `job send 0` sends a value to the main thread; `job recv` (no id) reads it there.
-    `job list`, not `job ls`.
-  - Plugins registered for `nu` (`plugin list`) work here too; `plugin add` registers one.
+  - No terminal and no stdin: nothing interactive. A server does not belong in a call:
+    start it in the background (Claude Code: run_in_background), then, in a call,
+    timeout 1min { wait-for url ... }.
+  - '...' and r#'...'# have no escapes; "..." has \n \t \" \\ \u{1b}. A value in text:
+    $"hello ($name)". In $"..." every ( ) runs as code: \( \) for text. A regex goes in
+    '...'. A ' in text: "it's" or r#'it's'#. A commit message: always a raw string,
+    r#'Fix the footer (see notes)'# | ^git commit -F -. Colors out of text: ansi strip.
+  - A flag with a value from a variable is one string: ^mysql $"--password=($pw)" db.
+    External commands see $env.X and with-env, not `let` variables.
+  - A bare word like 91778bb or 10mb is a number or size: quote a hash, "91778bb".
+  - `where name =~ 'x'` fails on a null name: `where name != null and name =~ 'x'`.
+  - `glob **/*.ts --no-dir | path relative-to (pwd)`: files only, from here (glob has
+    hidden files and .git; ls **/* has not). `find` filters a value, not files.
+  - `http post -t application/json <url> {key: value}`: the whole MIME type.
+  - `job spawn { ... }` lasts until the call ends; `job send 0` there, `job recv` here.
 
 MORE
-  Every call is recorded, with its code and outcome, in {log_dir};
-  as a table: nux-log --since 1day   (nux help nux-log)
+  Every call is recorded in {log_dir}; as a table: nux-log --since 1day
