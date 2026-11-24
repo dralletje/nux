@@ -947,7 +947,11 @@ fn pnpm_by_package_takes_recursive_output_apart() {
 /// PATH with it first.
 fn fake_npm() -> (std::path::PathBuf, std::path::PathBuf) {
     use std::os::unix::fs::PermissionsExt;
-    let dir = scratch().join(format!("npm-module-{}", std::process::id()));
+    // A folder per call: tests run in parallel, and writing a script another test is running
+    // fails ("Text file busy", seen on CI).
+    static CALLS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let call = CALLS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let dir = scratch().join(format!("npm-module-{}-{call}", std::process::id()));
     std::fs::create_dir_all(dir.join("bin")).unwrap();
     std::fs::create_dir_all(dir.join("work")).unwrap();
     let fake = dir.join("bin/npm");
