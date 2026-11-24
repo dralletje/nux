@@ -7,6 +7,8 @@ Allowed, as `nux help` teaches them:
     ...                                 that is the delimiter alone, which ends the command
     NU
     nux help [command]   nux find <word>
+                                        also piped to head, tail, grep, less or more
+                                        (`nux help | head -60`), to read the manual
 Each may carry -r 'reason'. Anything else is blocked (exit 2), and the reason goes back to
 the agent: a pipe after nux, `cd x && nux`, env prefixes, a second command after the heredoc.
 
@@ -21,7 +23,13 @@ import sys
 
 REASON = r"(?: -r '[^'\n]*')?"
 ONE_LINE = re.compile(rf"nux{REASON} <<< '[^'\n]*'")
-HELP = re.compile(rf"nux{REASON} (?:help(?: [\w -]+)?|find [\w -]+)")
+# The manual may be read the way agents read any text: `nux help | head -60` was blocked
+# in 4 of 8 runs of an eval (docs/nux-vs-bash-eval.md). Only viewers that print, with plain
+# arguments: no `$`, backticks, `;`, `&` or redirections. sed only as `sed -n '1,80p'`
+# (another script can write files).
+ARGUMENT = r"(?:'[^'\n$`]*'|[\w.,:/^*+?=\[\]{}-]+)"
+VIEWER = rf"(?:(?:head|tail|grep|less|more)(?: +{ARGUMENT})*|sed -n '\d+,\d+p')"
+HELP = re.compile(rf"nux{REASON} (?:help(?: [\w -]+)?|find [\w -]+?)(?: *\| *{VIEWER})*")
 HEREDOC_START = re.compile(rf"nux{REASON} <<'(\w+)'")
 
 

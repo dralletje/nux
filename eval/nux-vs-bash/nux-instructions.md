@@ -3,8 +3,9 @@
 `nux` (installed at `~/.local/bin/nux`, from https://github.com/dralletje/nux) is
 Nushell for agents: code goes in on stdin, results come back as structured data.
 
-- At the start of every session, before any other Bash call, run `nux help` and read
-  it. It is the manual for how to call nux and how its Nushell differs from bash.
+- At the start of every session, before any other Bash call, run `nux help` as it is
+  (not through `head`: it is short) and read all of it. It is the manual for how to call
+  nux and how its Nushell differs from bash.
 - Every Bash tool call goes through nux, including small one-off commands
   (`nux <<< 'git status'`, `nux <<'NU' ... NU`). Do not run plain bash commands,
   pipelines or scripts directly.

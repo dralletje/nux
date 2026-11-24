@@ -59,7 +59,8 @@ Skip any step whose tool is already there and new enough.
 
 1. nux: the release tarball for this architecture (arm64 for aarch64), into ~/.local/bin:
    https://github.com/dralletje/nux/releases/latest/download/nux-linux-<x86_64|arm64>.tar.gz
-   Make sure ~/.local/bin is on PATH. Then run `nux help` and read all of it: from here
+   Make sure ~/.local/bin is on PATH. Then run `nux help` as it is (not through `head`)
+   and read all of it: from here
    on, run every command through nux as it describes.
 2. ripgrep (`rg`, for `search`): the latest release of BurntSushi/ripgrep, the
    x86_64-unknown-linux-musl or aarch64-unknown-linux-gnu tarball; `rg` into ~/.local/bin.
@@ -108,8 +109,9 @@ In `AGENTS.md`, `CLAUDE.md` or wherever the agent reads its standing instruction
 `nux` (https://github.com/dralletje/nux) is Nushell for agents: code goes in on stdin,
 results come back as structured data.
 
-- At the start of every session, before any other shell command, run `nux help` and read
-  it. It is the manual for how to call nux and how its Nushell differs from bash.
+- At the start of every session, before any other shell command, run `nux help` as it is
+  (not through `head`: it is short) and read all of it. It is the manual for how to call
+  nux and how its Nushell differs from bash.
 - Every shell command goes through nux, including small one-off commands
   (`nux <<< 'git status'`, `nux <<'NU' ... NU`). Do not run plain bash commands,
   pipelines or scripts directly.
@@ -129,8 +131,9 @@ out for one whose only tool is the shell.
 Instructions are followed most of the time. To make it every time, `hooks/nux-only.py` is a
 PreToolUse hook that blocks a Bash call unless it is one nux call, as `nux help` writes
 them: `nux <<< '...'`, `nux <<'NU'` up to the last line `NU`, `nux help`, `nux find`, each
-with or without `-r '...'`. A pipe after it, `cd x &&` before it, a second command after
-the heredoc: blocked, and the agent is told how to do it instead. It holds in every
+with or without `-r '...'`; `nux help` and `nux find` also piped to head, tail, grep, less
+or more, to read the manual. Any other pipe after it, `cd x &&` before it, a second
+command after the heredoc: blocked, and the agent is told how to do it instead. It holds in every
 permission mode, `bypassPermissions` too, which permission rules alone do not (a deny rule
 cannot say "everything except nux", and allow rules are skipped when bypassing).
 

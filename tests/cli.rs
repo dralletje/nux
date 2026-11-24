@@ -125,6 +125,13 @@ fn help_capped_says_what_it_returns() {
     }
 }
 
+/// The nux-only hook's own tests (hooks/test_nux_only.py), so CI runs them too.
+#[test]
+fn nux_only_hook_lets_through_what_it_should() {
+    let run = Command::new("python3").arg(concat!(env!("CARGO_MANIFEST_DIR"), "/hooks/test_nux_only.py")).output().unwrap();
+    assert!(run.status.success(), "{}", String::from_utf8_lossy(&run.stderr));
+}
+
 /// nux's default form, made for reading (src/readable.rs, "v0" in docs/output-format-eval.md).
 #[test]
 fn values_are_printed_for_reading() {

@@ -29,10 +29,12 @@ WHAT YOU GET BACK
              be misread: empty, padded, a number, true/false/null, a newline
     durations, sizes  `~1min 28sec`, `~4.512MB` (~: rounded)
     other    NUON. Exact types: `| to nuon`; JSON: `| to json --raw`; NUX_FORMAT=nuon: all
-  An external command: its output. When it fails: all of it, "exited with code N", and the
-  call stops. Inside a loop, closure or def: `^cmd | complete | check-exit "cmd"` for its
-  output. stderr is marked `stderr (cmd): ...`; `e> /dev/null` silences it, `e>| lines`
-  pipes it on, `complete` gives {stdout, stderr, exit_code}.
+  An external command: its output, a value to pipe on as it is: ^git log --format=%h |
+  lines. When it fails: all of it, "exited with code N", and the call stops. `| complete`
+  ({stdout, stderr, exit_code}) only to read stderr or the exit code, or to go on after a
+  failure; never `| complete | get stdout`. stderr is marked `stderr (cmd): ...`;
+  `e> /dev/null` silences it, `e>| lines` pipes it on. Inside a loop, closure or def, a
+  failure ends the call without its output: `^cmd | complete | check-exit "cmd"`.
   `| show` (or `| show { length }`) prints a value on the way and passes it on.
   No time limit of its own: give your tool call more time for a long build or install.
 
