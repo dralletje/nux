@@ -13,23 +13,33 @@
 # Returns {path, edits, replacements}; for several files, a table of those.
 @example "One edit" { edit-file app/root.tsx 'console.log(error)' 'console.error(error)' }
 @example "Several edits at once" { [[old new]; ['let a = 1' 'let a = 2'] ['"2025"' '"2026"']] | edit-file config.ts }
+@example "The same, with the table as an argument" { let edits = [[old new]; ['let a = 1' 'let a = 2']]; edit-file config.ts $edits }
 @example "Edits in several files, all or nothing" {
   [[path old new]; [a.ts 'from "./x"' 'from "./y"'] [b.ts 'from "./x"' 'from "./y"']] | edit-file
 }
 @example "A regular expression, every match" { edit-file src/a.ts --regex --all 'console\.log\((.*)\)' 'logger.debug($1)' }
 export def main [
   path?: path     # the file to change (leave out when the edits come in with a `path` column)
-  old?: string    # text to find (leave out when edits come in as a table)
+  old?: any       # text to find (leave out when edits come in as a table; or the table itself)
   new?: string    # text to put in its place
   --all (-a)      # replace every occurrence instead of requiring exactly one
   --regex (-r)    # `old` is a regular expression, `new` may use its groups ($1, ${name})
 ]: [nothing -> any, table -> any] {
   let piped = $in
-  let edits = if $old != null {
+  let kind = ($old | describe)
+  # The edits as an argument (`edit-file f $edits`), as agents write it as often as piped.
+  let edits = if ($kind =~ '^(table|list)') {
+    if $new != null {
+      error make {msg: "edit-file: a table of edits and a `new` as well", help: "With a table of old/new, leave out <new>: edit-file <path> $edits"}
+    }
+    $old
+  } else if ($kind =~ '^record') {
+    error make {msg: "edit-file: `old` is a record, not text", help: "edit-file <path> <old> <new>, or a table with the columns `old` and `new`: edit-file <path> $edits"}
+  } else if $old != null {
     if $new == null {
       error make {msg: "edit-file: `old` given without `new`", help: "edit-file <path> <old> <new>   (use '' to delete text)"}
     }
-    [{old: $old, new: $new}]
+    [{old: ($old | into string), new: $new}]
   } else if $piped != null {
     $piped
   } else {

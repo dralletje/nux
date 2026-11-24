@@ -134,7 +134,9 @@ export def js [
 # grep prints them, after any filtering: `| to grep`. A path with `*` in it is a glob
 # (`search foo src/*.ts`).
 #
-# For grep's other flags there is a way here already: -c is --files; -e a b is one pattern
+# grep's -n and -r are taken and change nothing: line numbers and folders are always there.
+# For grep's other flags there is a way here already: -c and --files-with-matches are
+# --files; --include and --exclude are --glob ('*.ts', '!*.test.ts'); -e a b is one pattern
 # 'a|b'; -w is '\bword\b'; -v is `where` on the lines (open --raw f | lines | where $it !~ x).
 @search-terms grep rg ripgrep "find in files"
 @example "A regular expression, everywhere below the current directory" { search 'export const \w+' }
@@ -156,6 +158,8 @@ export def search [
   --only-matching (-o)         # One row per match, `text` only what matched (not with lines around)
   --files (-l)                 # One row per file instead: file, matches (grep's -c and -l)
   --all (-a)                   # Also search hidden files and files that .gitignore excludes
+  --line-number (-n)           # Changes nothing: `line` is always there (grep's -n)
+  --recursive (-r)             # Changes nothing: folders are always searched through (grep's -r)
 ]: [nothing -> table, string -> table] {
   # Text piped in is searched instead of files (`file` is "(input)").
   let input = $in

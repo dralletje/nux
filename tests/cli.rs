@@ -969,10 +969,19 @@ fn an_unknown_flag_lists_the_flags_there_are() {
     // A single letter of another tool gets no guess.
     assert!(!run.stdout.contains("Did you mean"), "{}", run.stdout);
     // grep's flags that have a way here already: that way, then the flags.
-    let run = nux(&[], "search x -n");
-    assert!(run.stdout.contains("Hint: `-n`: not needed, `line` is always there.\n    The flags of `search`:"), "{}", run.stdout);
     let run = nux(&[], "search x -c");
-    assert!(run.stdout.contains("--files gives one row per file"), "{}", run.stdout);
+    assert!(run.stdout.contains("Hint: `-c`: --files gives one row per file"), "{}", run.stdout);
+    assert!(run.stdout.contains("The flags of `search`:"), "{}", run.stdout);
+    let run = nux(&[], "search x --files-with-matches");
+    assert!(run.stdout.contains("Hint: --files gives one row per file that matches"), "{}", run.stdout);
+    let run = nux(&[], "search x --exclude node_modules");
+    assert!(run.stdout.contains("--glob '!node_modules/'"), "{}", run.stdout);
+    let run = nux(&[], "search x --include '*.ts'");
+    assert!(run.stdout.contains("Only some files: --glob '*.ts'"), "{}", run.stdout);
+    // grep's -n and -r are taken: they change nothing (they failed every day in the log).
+    let here = env!("CARGO_MANIFEST_DIR");
+    let run = nux(&[], &format!("search -n -r 'fn other_tool' '{here}/src/assist' | get line | length"));
+    assert_eq!((run.status, run.stdout.as_str()), (0, "1\n"), "{}", run.stdout);
     let run = nux(&[], "ls --al");
     assert!(run.stdout.contains("Hint: Did you mean --all?"), "{}", run.stdout);
     // A subcommand: Nushell names it `status`; the hint finds `git status`.
@@ -1036,6 +1045,15 @@ fn edit_file_on_several_files_and_with_a_regex() {
     let run = nux_in(&dir, "edit-file c.ts --regex --all 'console\\.log\\((.*)\\)' 'logger.debug($1)' | get replacements");
     assert_eq!(run.stdout, "2\n", "{}", run.stdout);
     assert_eq!(std::fs::read_to_string(dir.join("c.ts")).unwrap(), "logger.debug(1)\nlogger.debug(two)\n");
+    // The table of edits as an argument, not piped: agents write it so as often.
+    let run = nux_in(&dir, "let edits = [[old new]; ['debug(1)' 'debug(3)'] ['two' 'four']]\nedit-file c.ts $edits | get replacements");
+    assert_eq!(run.stdout, "2\n", "{}{}", run.stdout, run.stderr);
+    assert_eq!(std::fs::read_to_string(dir.join("c.ts")).unwrap(), "logger.debug(3)\nlogger.debug(four)\n");
+    let run = nux_in(&dir, "edit-file c.ts [[old new]; [a b]] 'c'");
+    assert!(run.stdout.contains("a table of edits and a `new` as well"), "{}", run.stdout);
+    // A number as `old` is still text.
+    let run = nux_in(&dir, "edit-file c.ts 3 5 | get replacements");
+    assert_eq!(run.stdout, "1\n", "{}{}", run.stdout, run.stderr);
 }
 
 /// search: lines before or after, only what matched, grep's text, and globs as paths.

@@ -121,6 +121,8 @@ TRYING CODE
 COMMANDS THAT GIVE TABLES   (examples for each: nux help <command>)
       search 'pattern' src --glob '*.ts'    file contents (ripgrep): file, line, text. Line
                                             numbers always, folders always searched through.
+                                            What .gitignore ignores (node_modules, dist) is
+                                            left out already; --all to search it too.
                                             --context 3 (--before-context, --after-context),
                                             --only-matching, --files (counts per file)
       search 'pattern' src --context 2 | where file !~ test | to grep

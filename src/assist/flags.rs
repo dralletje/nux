@@ -58,9 +58,13 @@ fn other_tool(command: &str, flag: &str) -> Option<&'static str> {
         (_, "timeout" | "time-limit" | "max-time") if command != "http" && !command.starts_with("http ") => {
             "No command has a time limit of its own: put it in `timeout`, e.g. timeout 2min { ... }."
         }
-        ("search", "n" | "line-number") => "`-n`: not needed, `line` is always there.",
-        ("search", "r" | "R" | "recursive") => "`-r`: not needed, folders are always searched through.",
+        ("search", "R" | "dereference-recursive") => "`-R`: not needed, folders are always searched through.",
         ("search", "c" | "count") => "`-c`: --files gives one row per file with its number of matches.",
+        ("search", "files-with-matches" | "L" | "files-without-match") => "--files gives one row per file that matches, with its number of matches.",
+        ("search", "include" | "type" | "t") => "Only some files: --glob '*.ts' (one glob; for several, {ts,tsx}: --glob '*.{ts,tsx}').",
+        ("search", "exclude" | "exclude-dir" | "type-not" | "T") => "Leave files out: --glob '!*.test.ts', a folder: --glob '!node_modules/'.",
+        ("search", "regex" | "regexp-mode") => "The pattern is always a regular expression (Rust syntax); --literal for plain text.",
+        ("search", "path") => "Paths come after the pattern: search 'pattern' src lib.",
         ("git log", "pretty" | "format") => "nux's git log is a table: --oneline gives only `short` and `subject`; any column with `select`.",
         ("search", "e" | "regexp") => "`-e`: one pattern; for either of two, 'a|b'.",
         ("search", "w" | "word-regexp") => "`-w`: write the word between \\b in the pattern: '\\bword\\b'.",
