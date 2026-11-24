@@ -17,13 +17,13 @@ NU
 
 ```
 ── line 1: open Cargo.toml | get package.version
-0.2.0
+0.3.0
 ── line 2: ls src | where size > 10kb | select name size
 | name | size |
 |---|---|
 | src/engine.rs | 24.17kB |
 | src/format.rs | 11.893kB |
-| src/help.txt | 20.387kB |
+| src/help.txt | 11.248kB |
 | src/readable.rs | 15.499kB |
 | src/rewrite.rs | 12.499kB |
 ```
