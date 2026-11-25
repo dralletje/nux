@@ -56,6 +56,12 @@ def run_one(task: str, tool: str, model: str, rep: int, work: Path, nux_bin: Pat
             "wall_seconds": round(time.time() - step_started, 1), "is_error": reply.get("is_error"),
             "usage": reply.get("usage"), "result": (reply.get("result") or "")[:2000],
         })
+    # What each step cost on its own.
+    so_far = 0
+    for step in done:
+        if step.get("cost_usd") is not None:
+            step["step_cost_usd"] = round(step["cost_usd"] - so_far, 6)
+            so_far = step["cost_usd"]
     check = subprocess.run([sys.executable, str(HERE / "check.py"), task, str(folder)], capture_output=True, text=True)
     try:
         verdict = json.loads(check.stdout)
@@ -66,7 +72,8 @@ def run_one(task: str, tool: str, model: str, rep: int, work: Path, nux_bin: Pat
         "passed": verdict["passed"], "checks": verdict.get("checks"),
         "steps_done": len([s for s in done if "error" not in s]), "steps": done,
         "num_turns": sum(s.get("num_turns") or 0 for s in done),
-        "cost_usd": round(sum(s.get("cost_usd") or 0 for s in done), 4),
+        # A resumed session's total_cost_usd is the session's so far: the last step's is all.
+        "cost_usd": max((s.get("cost_usd") or 0 for s in done), default=0),
         "wall_seconds": round(time.time() - started, 1),
         "session_id": session,
         **transcript_stats(session or "none"),
