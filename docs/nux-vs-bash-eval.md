@@ -422,3 +422,71 @@ session read it that way, but with 3 sessions each that may be chance.
   start. On tasks like these, results are the same.
 - Where nux could do better: `git log --follow` (the only error that came back across
   sessions).
+
+
+## Run 6 (2026-11-25): a session with a build, a dev server and logs (multi-turn-ops)
+
+Run 5's requests were mostly small edits and git, where bash is good already. multi-turn-ops
+adds what agents meet in real work, spread over the session (16 requests,
+`tasks/multi-turn-ops.json`):
+
+- `npm run build`: 409 lines on stdout ("[build] chunk ...", and "checked x: no
+  warnings"), three warnings on stderr, and a last stderr line "3 warnings in total" that
+  names no file. Asked: which files and lines.
+- `npm run serve`: a dev server that warms up for 2 s and then says its port (random).
+  One request: start it, what do /health and /api/report say, stop it. (One request, as
+  every step is its own claude process.) Checked: nothing of it left running.
+- `logs/access.jsonl`, 6000 requests: the path with the most 5xx, and how many.
+
+Also: step 5 now says "with no alias under the old name" (run 5's two misses), and nux has
+`git config` and `git log --follow` since. bash and nux-nofiles × sonnet, opus × 3, run
+side by side (12 at once).
+
+### All 12 passed
+
+| model | tool | turns | Bash calls | cost (min-max) | duration | errors (total) | output read |
+|---|---|---|---|---|---|---|---|
+| opus | bash | 59.0 | 34.0 | $1.271 (1.11-1.42) | 285 s | 2 | 25.3 k chars |
+| opus | nux-nofiles | 60.0 | 36.3 | $1.323 (1.17-1.54) | 272 s | 5 | 43.2 k chars |
+| sonnet | bash | 46.3 | 30.3 | $0.487 (0.47-0.50) | 192 s | 3 | 37.3 k chars |
+| sonnet | nux-nofiles | 47.3 | 31.0 | $0.415 (0.39-0.46) | 155 s | 4 | 33.6 k chars |
+
+For sonnet nux is now the cheaper one (-15%) and the faster (-19%); for opus it costs +4%,
+within the spread of either. Per request, the build, server and log steps:
+
+| step | opus bash | opus nux | sonnet bash | sonnet nux |
+|---|---|---|---|---|
+| build: which warnings | $0.051 | $0.073 | $0.053 | $0.020 |
+| dev server | $0.099 | $0.128 | $0.059 | $0.035 |
+| access log | $0.065 | $0.060 | $0.023 | $0.021 |
+
+What made the difference:
+
+- The build: sonnet with bash ran `npm run build 2>&1` and read all of it (17.6 k chars),
+  every time. With nux, `^npm run build | complete` was too large to print, so it was kept
+  (`result-1`), and the next call looked at `$r.stderr` and filtered the lines (1.6 k
+  chars). Opus with bash did the same by hand (stdout and stderr to files, `wc -l`, `cat`
+  of stderr); opus with nux also opened `bin/build.js` to see where the warnings come
+  from, which made its build step dearer.
+- The server: bash agents wrote their own loops (`for i in $(seq 1 20); do grep -q ...;
+  sleep 0.5; done`, `setsid`, `kill -- -PGID`, `ss -ltnp`); nux agents used `wait-for url`,
+  `wait-for file ... --contains`, `ports` and `http get`. Opus with nux took more turns
+  there: it started the server with run_in_background, and then `ports | where command =~
+  serve | first` found another session's server (12 ran side by side), before it found
+  its own.
+- The log: the same with either.
+
+nux's errors: `into float --thousands-separator` and `from csv --strict` (flags guessed),
+`=~` on a null, a glob argument that did not parse, and one blocked call. Bash's: a few
+commands that exited 1 at the end of a chain.
+
+### What run 6 shows
+
+- On requests that come with large or noisy output, nux pays for itself: keeping a large
+  result and reading only what is asked for is cheaper than reading it all, which is what
+  sonnet does in bash. Over this session that made sonnet with nux 15% cheaper than with
+  bash.
+- Opus already keeps its bash output small by hand, so for opus the two cost about the
+  same.
+- With runs 5 and 6: in sessions, nux costs between -15% and +15% against bash, with the
+  same results; the more output a session has to dig through, the better nux does.
