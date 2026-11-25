@@ -120,8 +120,19 @@ def long_session(folder: Path) -> None:
     (folder / "answer.json").write_text(json.dumps(answer))
 
 
+def multi_turn(folder: Path) -> None:
+    long_session(folder)
+    report = folder / "bin/report.js"
+    filtered = """const at = process.argv.indexOf('--min-total')
+const least = at === -1 ? -Infinity : Number(process.argv[at + 1])
+const rows = [...byCustomer.values()].filter((r) => r.total >= least)"""
+    report.write_text(report.read_text().replace("const rows = [...byCustomer.values()]", filtered))
+    git(folder, "commit", "-qam", "feat: report --min-total")
+
+
 TASKS = {"git-history": git_history, "fix-tests": fix_tests, "log-analysis": log_analysis, "refactor": refactor,
-         "git-messy": git_messy, "test-triage": test_triage, "csv-join": csv_join, "long-session": long_session}
+         "git-messy": git_messy, "test-triage": test_triage, "csv-join": csv_join, "long-session": long_session,
+         "multi-turn": multi_turn}
 
 if __name__ == "__main__":
     TASKS[sys.argv[1]](Path(sys.argv[2]))

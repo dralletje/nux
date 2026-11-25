@@ -1,0 +1,15 @@
+[
+  "Get to know this project: what is it, how is it tested, and what does its git history look like? A short answer.",
+  "Run the tests. What fails, and why? Don't fix anything yet.",
+  "Fix those bugs in src/ (not in the tests), and make sure the tests pass.",
+  "Which commit introduced the rounding bug? Who made it, and when?",
+  "Rename the function calcTotal to computeTotal everywhere in the code (src/, test/, bin/). data/api-schema.json names a public API operation calcTotal: that name must stay as it is.",
+  "Run node bin/report.js. Which customer has the most orders, and what is the highest total?",
+  "Add --format csv to bin/report.js: the same rows, in the same order, as CSV with the header customer,orders,total, the total with two decimals, quoted the standard CSV way where needed. Without the flag it prints the JSON as before.",
+  "Also add --min-total <amount> to the report: only the customers whose total is at least that amount, in both formats.",
+  "data/sales.csv is an export of sales (amounts in EUR). What was the total amount per region for January to March 2026?",
+  "And who was the rep with the highest total amount in 2025?",
+  "Write answer.json in this folder, one JSON object with: rounding_bug_commit (the full hash), q1_2026_by_region (as {\"North\": 1234.56, ...}, rounded to 2 decimals) and top_rep_2025.",
+  "Commit your changes to the code on a new branch report-csv, made from main, as commits whose subjects start with fix:, feat: and refactor: (at least one of each), like the repository's own history. Leave main as it is, and leave answer.json out of git.",
+  "Summarize what is on report-csv compared to main: the files changed, with lines added and deleted for each."
+]

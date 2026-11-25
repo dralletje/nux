@@ -357,8 +357,30 @@ def check_long_session(folder: Path) -> dict:
     }
 
 
+def check_multi_turn(folder: Path) -> dict:
+    """long-session's checks, and the report's --min-total (asked for in a later step)."""
+    import csv
+    import io
+
+    checks = check_long_session(folder)
+    report = long_session_truth(folder)["report"]
+    kept = [r for r in report if r["total"] >= 1000]
+    as_json = subprocess.run(["node", "bin/report.js", "--min-total", "1000"], cwd=folder, capture_output=True, text=True)
+    as_csv = subprocess.run(["node", "bin/report.js", "--min-total", "1000", "--format", "csv"], cwd=folder, capture_output=True, text=True)
+    as_csv_other_order = subprocess.run(["node", "bin/report.js", "--format", "csv", "--min-total", "1000"], cwd=folder, capture_output=True, text=True)
+    try:
+        json_ok = json.loads(as_json.stdout) == kept
+    except Exception:
+        json_ok = False
+    expected = [["customer", "orders", "total"]] + [[r["customer"], str(r["orders"]), f"{r['total']:.2f}"] for r in kept]
+    checks["min_total_json"] = json_ok and 0 < len(kept) < len(report)
+    checks["min_total_csv"] = all(list(csv.reader(io.StringIO(run.stdout))) == expected for run in [as_csv, as_csv_other_order])
+    return checks
+
+
 CHECKS = {"git-history": check_git_history, "fix-tests": check_fix_tests, "log-analysis": check_log_analysis, "refactor": check_refactor,
-          "git-messy": check_git_messy, "test-triage": check_test_triage, "csv-join": check_csv_join, "long-session": check_long_session}
+          "git-messy": check_git_messy, "test-triage": check_test_triage, "csv-join": check_csv_join, "long-session": check_long_session,
+          "multi-turn": check_multi_turn}
 
 if __name__ == "__main__":
     task, folder = sys.argv[1], Path(sys.argv[2])
