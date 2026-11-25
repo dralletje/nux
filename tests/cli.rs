@@ -1752,18 +1752,31 @@ fn a_builtin_variable_name_gets_another_name() {
 }
 
 
-/// `into float` refuses a comma: Nushell's own reads "1,500" as 1.5 (a decimal comma), where
-/// it was as likely fifteen hundred. Only the agent knows which, so it says so instead of
-/// guessing.
+/// `into float` and `into int` read numbers as the US writes them: a comma groups thousands
+/// (1,500.25), and a comma anywhere else is an error, not a guess. Nushell's own read "1,500"
+/// as 1.5 in `into float` and "1,5" as 15 in `into int`.
 #[test]
-fn into_float_refuses_a_comma() {
-    let run = nux(&[], r#"[[item amount]; [a "12.50"] [b "1,500"]] | into float amount"#);
-    assert_eq!(run.status, 1, "{}", run.stdout);
-    assert!(run.stdout.contains(r#""1,500" has a comma: thousands, or a decimal comma?"#), "{}", run.stdout);
+fn into_float_and_int_read_us_numbers() {
+    let run = nux(&[], r#"["1,500" "1,500.25" "-12,345,678.5" "12.50" "+1,000"] | into float | to json --raw"#);
+    assert_eq!(run.stdout, "[1500.0,1500.25,-12345678.5,12.5,1000.0]\n", "{}", run.stdout);
+    let run = nux(&[], r#"["1,500" "-1,234,567" "42"] | into int | to json --raw"#);
+    assert_eq!(run.stdout, "[1500,-1234567,42]\n", "{}", run.stdout);
+    for (code, says) in [
+        (r#"[[item amount]; [a "12.50"] [b "1,5"]] | into float amount"#, r#""1,5" is not a number in US style (1,500.25)"#),
+        (r#""1,50.5" | into float"#, r#""1,50.5" is not a number in US style"#),
+        (r#""1,5" | into int"#, r#""1,5" is not a whole number in US style (1,500)"#),
+    ] {
+        let run = nux(&[], code);
+        assert_eq!(run.status, 1, "{code}: {}", run.stdout);
+        assert!(run.stdout.contains(says), "{code}: {}", run.stdout);
+    }
+    let run = nux(&[], r#"[[item amount]; [a "12.50"] [b "1,5"]] | into float amount"#);
     assert!(run.stdout.contains("row 1, amount"), "{}", run.stdout);
-    assert!(run.stdout.contains("str replace --all ',' ''"), "{}", run.stdout);
-    let run = nux(&[], r#""1,5" | into float"#);
-    assert!(run.stdout.contains(r#""1,5" has a comma"#), "{}", run.stdout);
+    assert!(run.stdout.contains("into float-eu"), "{}", run.stdout);
+    assert!(nux(&[], r#""1,5" | into int"#).stdout.contains("into int-eu"));
+    // Other bases are left alone.
+    let run = nux(&[], r#""ff" | into int --radix 16"#);
+    assert_eq!(run.stdout, "255\n", "{}", run.stdout);
     // What has no comma converts as before: a table's column, text, a list, a record.
     let run = nux(&[], r#"[[item amount]; [a "12.50"] [b " 7 "] [c 3]] | into float amount | to json --raw"#);
     assert_eq!(run.stdout, "[{\"item\":\"a\",\"amount\":12.5},{\"item\":\"b\",\"amount\":7.0},{\"item\":\"c\",\"amount\":3.0}]\n", "{}", run.stderr);
@@ -1788,4 +1801,29 @@ open $"($dir)/o.csv" | into float amount"#,
     assert!(run.stdout.contains("line 2"), "{}", run.stdout);
     assert!(!run.stdout.contains("nux/"), "{}", run.stdout);
     assert!(run.stdout.contains("try { $row.amount | into float } catch { null }"), "{}", run.stdout);
+}
+
+
+/// `into float-eu` and `into int-eu` read numbers as much of Europe writes them: a dot groups
+/// thousands, a comma is the decimal one (1.500,25). Anything else is an error that names the
+/// US-style command.
+#[test]
+fn into_float_and_int_eu_read_european_numbers() {
+    assert!(nux(&["help"], "").stdout.contains("into float-eu 1.500,25"));
+    let run = nux(&[], r#"["1.500,25" "1,5" "1.500" "12" "-1.234.567,5"] | into float-eu | to json --raw"#);
+    assert_eq!(run.stdout, "[1500.25,1.5,1500.0,12.0,-1234567.5]\n", "{}", run.stdout);
+    let run = nux(&[], r#"["1.500" "1.234.567" "42"] | into int-eu | to json --raw"#);
+    assert_eq!(run.stdout, "[1500,1234567,42]\n", "{}", run.stdout);
+    let run = nux(&[], r#"[[item amount]; [a "12,50"] [b " 7 "]] | into float-eu amount | to json --raw"#);
+    assert_eq!(run.stdout, "[{\"item\":\"a\",\"amount\":12.5},{\"item\":\"b\",\"amount\":7.0}]\n", "{}", run.stdout);
+    for (code, says, other) in [
+        (r#""1.5" | into float-eu"#, r#""1.5" is not a number in European style (1.500,25)"#, "into float"),
+        (r#""1,5" | into int-eu"#, r#""1,5" is not a whole number in European style (1.500)"#, "into int"),
+        (r#""n/a" | into float-eu"#, r#""n/a" is not a number"#, "catch { null }"),
+    ] {
+        let run = nux(&[], code);
+        assert_eq!(run.status, 1, "{code}: {}", run.stdout);
+        assert!(run.stdout.contains(says), "{code}: {}", run.stdout);
+        assert!(run.stdout.contains(other), "{code}: {}", run.stdout);
+    }
 }
