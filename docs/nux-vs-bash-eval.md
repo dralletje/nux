@@ -364,3 +364,61 @@ The bash agents' one error: a `head` at the end of a long `;` chain that exited 
   by themselves on tasks like these; they batch. A session that is long because a person
   keeps asking (hundreds of calls over hours) is still not measured here: that needs a
   scripted multi-turn conversation (`claude -p --resume` per step), not one prompt.
+
+
+## Run 5 (2026-11-25): one session, thirteen requests (multi-turn)
+
+Runs 1-4 give an agent one prompt. A person asks for one thing after another, in one
+session. `runner_multi.py` does that: the steps of `tasks/multi-turn.json`, each a
+`claude -p` with `--resume <session>`, with the same settings as before for every step.
+The project is long-session's; the 13 requests: get to know it, run the tests, fix them,
+which commit broke rounding, the rename, a question about the report, `--format csv`,
+then `--min-total` (asked for only now), Q1 per region, top rep 2025, write answer.json,
+commit on a branch, summarize the branch. check.py: long-session's 14 checks, and
+`--min-total 1000` in both formats and both flag orders. bash and nux-nofiles × sonnet,
+opus × 3 = 12 sessions.
+
+(A resumed session's `total_cost_usd` is the session's so far, not the step's: the
+runner takes the last step's as the session's cost, and the differences per step.)
+
+### Per session (3 each)
+
+| model | tool | passed | turns | Bash calls | cost | duration | errors (total) | output read |
+|---|---|---|---|---|---|---|---|---|
+| opus | bash | 3 | 44.3 | 26.0 | $0.919 | 227 s | 0 | 17.1 k chars |
+| opus | nux-nofiles | 1 | 45.3 | 27.0 | $1.013 | 238 s | 2 | 34.4 k chars |
+| sonnet | bash | 3 | 32.0 | 18.3 | $0.273 | 145 s | 0 | 14.2 k chars |
+| sonnet | nux-nofiles | 3 | 35.0 | 22.0 | $0.315 | 139 s | 5 | 27.8 k chars |
+
+Over a session the gap is +10% (opus) and +15% (sonnet), against +30-60% for one
+prompt. Per opus session the costs were $0.86-0.95 with bash and $0.90-1.17 with nux:
+one nux session of 50 turns makes most of the difference, the other two are within
+bash's range.
+
+Per step, the first (which has `nux help`) costs nux +$0.03 (both models); after that the
+steps cost about the same with either tool, some more, some less. The manual is a fixed
+cost, and in a session it is paid once.
+
+### The two that did not pass
+
+Both opus with nux, both on the same two checks (`no_calcTotal_in_code`,
+`hidden_test_passes`), for the same reason: they kept `computeTotal as calcTotal` in
+`src/index.js` on purpose, reading "data/api-schema.json names a public API operation
+calcTotal: that name must stay" as "keep exporting it", and said so in the commit message.
+That is a reading of the request, not a tool error; the task meant only the schema. No bash
+session read it that way, but with 3 sessions each that may be chance.
+
+### nux's errors
+
+- `git log --follow` three times (sonnet): nux's `git log` has no `--follow`.
+- `^git config user.name` exiting 1 (no name set) twice (opus): the same in bash would be
+  `$?` 1 and no error; nux makes a failing external an error.
+- An `edit-file` whose old text was not there (nothing written), and a parse error in a
+  `glob` argument.
+
+### What run 5 shows
+
+- In a session of requests, nux costs 10-15% more than bash, mostly the manual at the
+  start. On tasks like these, results are the same.
+- Where nux could do better: `git log --follow` (the only error that came back across
+  sessions).
