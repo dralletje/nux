@@ -6,6 +6,7 @@ is computed from the fixture (git, the logs) where it can be, not written down.
 
 import json
 import math
+import os
 import re
 import subprocess
 import sys
@@ -278,19 +279,19 @@ console.log(JSON.stringify([...by.values()].sort((a, b) => b.total - a.total || 
 """
 
 
-def long_session_original(folder: Path) -> Path:
+def long_session_original(folder: Path, make=setup.long_session) -> Path:
     """The fixture as made, next to the run's folder, to compare with."""
-    original = folder.parent / (folder.name + "-original")
+    original = folder.parent / f"{folder.name}-original-{make.__name__}"
     if not original.exists():
         original.mkdir()
-        setup.long_session(original)
+        make(original)
     return original
 
 
-def long_session_truth(folder: Path) -> dict:
+def long_session_truth(folder: Path, make=setup.long_session) -> dict:
     import csv
 
-    original = long_session_original(folder)
+    original = long_session_original(folder, make)
     bug = git(original, "log", "--reverse", "--format=%H", "-S", "Math.floor(sum * 100)", "main", "--", "src/money.js").split()[0]
     q1, by_rep = Counter(), Counter()
     with open(original / "data/sales.csv", newline="") as f:
@@ -311,12 +312,12 @@ def long_session_truth(folder: Path) -> dict:
     }
 
 
-def check_long_session(folder: Path) -> dict:
+def check_long_session(folder: Path, make=setup.long_session) -> dict:
     import csv
     import io
 
     given = answer(folder)
-    truth = long_session_truth(folder)
+    truth = long_session_truth(folder, make)
     hidden = folder / "test" / "zz-hidden-check.test.js"
     hidden.write_text(LONG_HIDDEN_TEST)
     hidden_ok = node_test(folder, str(hidden.relative_to(folder))).returncode == 0
@@ -357,13 +358,13 @@ def check_long_session(folder: Path) -> dict:
     }
 
 
-def check_multi_turn(folder: Path) -> dict:
+def check_multi_turn(folder: Path, make=setup.long_session) -> dict:
     """long-session's checks, and the report's --min-total (asked for in a later step)."""
     import csv
     import io
 
-    checks = check_long_session(folder)
-    report = long_session_truth(folder)["report"]
+    checks = check_long_session(folder, make)
+    report = long_session_truth(folder, make)["report"]
     kept = [r for r in report if r["total"] >= 1000]
     as_json = subprocess.run(["node", "bin/report.js", "--min-total", "1000"], cwd=folder, capture_output=True, text=True)
     as_csv = subprocess.run(["node", "bin/report.js", "--min-total", "1000", "--format", "csv"], cwd=folder, capture_output=True, text=True)
@@ -378,7 +379,46 @@ def check_multi_turn(folder: Path) -> dict:
     return checks
 
 
-CHECKS = {"git-history": check_git_history, "fix-tests": check_fix_tests, "log-analysis": check_log_analysis, "refactor": check_refactor,
+def ops_truth(folder: Path) -> dict:
+    original = long_session_original(folder, setup.long_session_ops)
+    errors = Counter()
+    for line in (original / "logs/access.jsonl").read_text().splitlines():
+        entry = json.loads(line)
+        if entry["status"] >= 500:
+            errors[entry["path"]] += 1
+    (path, count), (_, second) = errors.most_common(2)
+    assert count > second, "the top 5xx path must be one"
+    report = long_session_truth(folder, setup.long_session_ops)["report"]
+    return {"top_5xx_path": path, "top_5xx_count": count, "report_customers": len(report)}
+
+
+def serve_running(folder: Path) -> bool:
+    """A process of the run's folder that is the dev server, still running."""
+    for proc in Path("/proc").iterdir():
+        try:
+            if proc.name.isdigit() and Path(os.readlink(proc / "cwd")).is_relative_to(folder.resolve()) and b"serve" in (proc / "cmdline").read_bytes():
+                return True
+        except (OSError, ValueError):
+            continue
+    return False
+
+
+def check_multi_turn_ops(folder: Path) -> dict:
+    """multi-turn's checks on the ops project, and what the build, the dev server and the
+    access log said."""
+    checks = check_multi_turn(folder, setup.long_session_ops)
+    given = answer(folder)
+    truth = ops_truth(folder)
+    warnings = {(str(w.get("file", "")).removeprefix("./"), w.get("line")) for w in (given.get("build_warnings") or []) if isinstance(w, dict)}
+    checks["build_warnings"] = warnings == set(setup.BUILD_WARNINGS)
+    checks["health_status"] = given.get("health_status") == "ok"
+    checks["report_customers"] = given.get("report_customers") == truth["report_customers"]
+    checks["top_5xx"] = given.get("top_5xx_path") == truth["top_5xx_path"] and given.get("top_5xx_count") == truth["top_5xx_count"]
+    checks["server_stopped"] = not serve_running(folder)
+    return checks
+
+
+CHECKS = {"multi-turn-ops": check_multi_turn_ops, "git-history": check_git_history, "fix-tests": check_fix_tests, "log-analysis": check_log_analysis, "refactor": check_refactor,
           "git-messy": check_git_messy, "test-triage": check_test_triage, "csv-join": check_csv_join, "long-session": check_long_session,
           "multi-turn": check_multi_turn}
 

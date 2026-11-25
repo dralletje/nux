@@ -528,7 +528,102 @@ def long_session(folder: Path) -> None:
     commit_as(folder, "data: sales export", "dave", "2026-09-01T10:00:00+01:00")
 
 
-TASKS = {"git-history": git_history, "fix-tests": fix_tests, "log-analysis": log_analysis, "refactor": refactor,
+BUILD_JS = """#!/usr/bin/env node
+// Checks src/ and bundles it into dist/. A line per chunk; warnings go to stderr.
+import { mkdirSync, writeFileSync } from 'node:fs'
+
+const WARNINGS = [
+  ['src/cart.js', 6, 'possible precision loss in money arithmetic'],
+  ['src/discounts.js', 10, 'magic number 4.95: give it a name'],
+  ['bin/report.js', 12, 'sort without a stable tie-breaker'],
+]
+mkdirSync(new URL('../dist/', import.meta.url), { recursive: true })
+const files = ['src/money.js', 'src/discounts.js', 'src/cart.js', 'src/index.js', 'bin/report.js']
+let chunk = 0
+const shown = new Set()
+for (let round = 0; round < 80; round++) {
+  for (const file of files) {
+    chunk += 1
+    console.log(`[build] chunk ${String(chunk).padStart(4, '0')} (${file}) ${(((chunk * 37) % 900) / 100 + 0.4).toFixed(2)} kB`)
+    if (chunk % 97 === 0) console.log(`[build] checked ${file}: no warnings`)
+    const warning = WARNINGS.find(([at], index) => at === file && chunk > 60 + index * 130 && !shown.has(index))
+    if (warning) {
+      shown.add(WARNINGS.indexOf(warning))
+      console.error(`warning: ${warning[0]}:${warning[1]}: ${warning[2]}`)
+    }
+  }
+}
+console.error(`warning: ${WARNINGS.length} warnings in total (see above)`)
+writeFileSync(new URL('../dist/bundle.js', import.meta.url), '// bundled\\n')
+console.log(`[build] done: ${chunk} chunks in dist/`)
+"""
+
+SERVE_JS = """#!/usr/bin/env node
+// The dev server: /health, and /api/report (the report as JSON). Picks a free port unless
+// PORT is set, and says which once it is ready.
+import { createServer } from 'node:http'
+import { readFileSync } from 'node:fs'
+import { calcTotal } from '../src/money.js'
+
+console.log('[serve] warming up the cache ...')
+setTimeout(() => {
+  const server = createServer((request, response) => {
+    const url = new URL(request.url, 'http://localhost')
+    if (url.pathname === '/health') {
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end(JSON.stringify({ status: 'ok', version: '0.3.0' }))
+      return
+    }
+    if (url.pathname === '/api/report') {
+      const orders = JSON.parse(readFileSync(new URL('../data/orders.json', import.meta.url), 'utf8'))
+      const byCustomer = new Map()
+      for (const order of orders) {
+        const row = byCustomer.get(order.customer) ?? { customer: order.customer, orders: 0, total: 0 }
+        row.orders += 1
+        row.total = Math.round((row.total + calcTotal(order.items)) * 100) / 100
+        byCustomer.set(order.customer, row)
+      }
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end(JSON.stringify([...byCustomer.values()]))
+      return
+    }
+    response.writeHead(404)
+    response.end('not found')
+  })
+  server.listen(Number(process.env.PORT ?? 0), '127.0.0.1', () => {
+    console.log(`[serve] shop dev server on http://127.0.0.1:${server.address().port}`)
+  })
+}, 2000)
+"""
+
+BUILD_WARNINGS = [("src/cart.js", 6), ("src/discounts.js", 10), ("bin/report.js", 12)]
+
+
+def long_session_ops(folder: Path) -> None:
+    """long-session's project, with a noisy build (its warnings on stderr, and a total that
+    names no file), a dev server that warms up and then says its port, and an access log."""
+    long_session(folder)
+    random.seed(13)
+    package = json.loads((folder / "package.json").read_text())
+    package["scripts"] = {"test": "node --test", "build": "node bin/build.js", "serve": "node bin/serve.js"}
+    (folder / "package.json").write_text(json.dumps(package, indent=2) + "\n")
+    (folder / "bin/build.js").write_text(BUILD_JS)
+    (folder / "bin/serve.js").write_text(SERVE_JS)
+    (folder / ".gitignore").write_text("dist/\nnode_modules/\n")
+    paths = ["/health", "/api/report", "/api/cart", "/api/checkout", "/api/discount", "/login"]
+    weights = [30, 20, 25, 10, 10, 5]
+    (folder / "logs").mkdir()
+    with open(folder / "logs" / "access.jsonl", "w") as f:
+        for n in range(6000):
+            path = random.choices(paths, weights)[0]
+            failing = {"/api/checkout": 0.06, "/api/cart": 0.03, "/api/report": 0.035}.get(path, 0.005)
+            status = random.choice([500, 502, 503]) if random.random() < failing else random.choice([200, 200, 200, 201, 304, 400, 404])
+            f.write(json.dumps({"ts": f"2026-09-{20 + n // 2000}T{(n // 84) % 24:02d}:{n % 60:02d}:00Z", "method": "GET" if path in ["/health", "/api/report"] else "POST",
+                                "path": path, "status": status, "ms": random.randint(2, 900)}) + "\n")
+    commit_as(folder, "chore: build script, dev server and access logs", "dave", "2026-09-15T10:00:00+01:00")
+
+
+TASKS = {"long-session-ops": long_session_ops, "git-history": git_history, "fix-tests": fix_tests, "log-analysis": log_analysis, "refactor": refactor,
          "git-messy": git_messy, "test-triage": test_triage, "csv-join": csv_join, "long-session": long_session}
 
 if __name__ == "__main__":

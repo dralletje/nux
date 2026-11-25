@@ -134,5 +134,22 @@ TASKS = {"git-history": git_history, "fix-tests": fix_tests, "log-analysis": log
          "git-messy": git_messy, "test-triage": test_triage, "csv-join": csv_join, "long-session": long_session,
          "multi-turn": multi_turn}
 
+
+def multi_turn_ops(folder: Path) -> None:
+    multi_turn(folder)
+    truth = check.ops_truth(folder)
+    answer = json.loads((folder / "answer.json").read_text())
+    answer.update({
+        "build_warnings": [{"file": f, "line": n} for f, n in check.setup.BUILD_WARNINGS],
+        "health_status": "ok",
+        "report_customers": truth["report_customers"],
+        "top_5xx_path": truth["top_5xx_path"],
+        "top_5xx_count": truth["top_5xx_count"],
+    })
+    (folder / "answer.json").write_text(json.dumps(answer))
+
+
+TASKS["multi-turn-ops"] = multi_turn_ops
+
 if __name__ == "__main__":
     TASKS[sys.argv[1]](Path(sys.argv[2]))

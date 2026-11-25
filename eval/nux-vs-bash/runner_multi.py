@@ -22,7 +22,21 @@ from pathlib import Path
 
 from runner import HERE, HOOK, transcript_stats
 
-FIXTURE = {"multi-turn": "long-session"}
+FIXTURE = {"multi-turn": "long-session", "multi-turn-ops": "long-session-ops"}
+
+
+def stop_leftovers(folder: Path) -> list[str]:
+    """End processes a session left running in its folder (a dev server), after the check
+    has seen them. Their command lines, for the record."""
+    stopped = []
+    for proc in Path("/proc").iterdir():
+        try:
+            if proc.name.isdigit() and Path(os.readlink(proc / "cwd")).is_relative_to(folder.resolve()):
+                stopped.append((proc / "cmdline").read_bytes().replace(b"\0", b" ").decode().strip())
+                os.kill(int(proc.name), 15)
+        except (OSError, ValueError):
+            continue
+    return stopped
 
 
 def run_one(task: str, tool: str, model: str, rep: int, work: Path, nux_bin: Path, results: Path) -> dict:
@@ -67,7 +81,9 @@ def run_one(task: str, tool: str, model: str, rep: int, work: Path, nux_bin: Pat
         verdict = json.loads(check.stdout)
     except Exception:
         verdict = {"passed": False, "checks": {}, "error": check.stderr[-1000:]}
+    left_running = stop_leftovers(folder)
     record = {
+        "left_running": left_running,
         "name": name, "task": task, "tool": tool, "model": model, "rep": rep,
         "passed": verdict["passed"], "checks": verdict.get("checks"),
         "steps_done": len([s for s in done if "error" not in s]), "steps": done,
