@@ -1882,3 +1882,23 @@ fn git_config_gives_settings_as_a_table() {
     assert_eq!(run.status, 1);
     assert!(run.stdout.contains("^git config user.name Grace"), "{}", run.stdout);
 }
+
+
+/// `git log --follow <file>`: the file's history past a rename (git's own flag, which agents
+/// wrote three times in eval run 5). One file only, as in git.
+#[test]
+fn git_log_follows_a_file_past_a_rename() {
+    let dir = git_repo("follow");
+    let moved = nux(&[], &format!("cd '{}'\n^git mv sub/a.txt sub/b.txt\n^git -c user.name=t -c user.email=t@t commit -q -m moved sub", dir.display()));
+    assert_eq!(moved.status, 0, "{}", moved.stdout);
+    let at = format!("cd '{}'\n", dir.display());
+    let run = nux(&[], &format!("{at}git log sub/b.txt | get subject | to json --raw"));
+    assert_eq!(run.stdout, "[\"moved\"]\n", "{}", run.stderr);
+    let run = nux(&[], &format!("{at}git log --follow sub/b.txt | get subject | to json --raw"));
+    assert_eq!(run.stdout, "[\"moved\",\"first\"]\n", "{}", run.stderr);
+    let run = nux(&[], &format!("{at}git log --follow sub/b.txt --files | get files.1.path | to json --raw"));
+    assert_eq!(run.stdout, "[\"sub/a.txt\"]\n", "{}", run.stderr);
+    let run = nux(&[], &format!("{at}git log --follow sub/b.txt README.md"));
+    assert_eq!(run.status, 1);
+    assert!(run.stdout.contains("--follow takes one file"), "{}", run.stdout);
+}

@@ -133,11 +133,20 @@ export def log [
   --files (-f)           # Add `files`: per commit a table of path, added, deleted
   --body (-b)            # Add `body`: the rest of the commit message
   --oneline (-o)         # Only `short` and `subject`, as git's --oneline (with --files/--body: those too)
+  --follow               # One file's history past renames (with --files: its path at each commit)
 ]: nothing -> table {
+  if $follow and ($paths | length) != 1 {
+    error make {
+      msg: "git log --follow takes one file"
+      label: {text: "--follow", span: (metadata $follow).span}
+      help: "As in git: --follow follows one file past renames. Several files: git log a.ts b.ts (no --follow)."
+    }
+  }
   # A record starts with 1e; fields end with 1f. What follows the last field is the file list.
   let format = "%x1e%H%x1f%h%x1f%aI%x1f%an%x1f%ae%x1f%D%x1f%P%x1f%s%x1f%b%x1f"
   mut arguments = [log $"--pretty=format:($format)"]
   if $files { $arguments ++= [--numstat --no-renames] }
+  if $follow { $arguments ++= [--follow] }
   if $max != null { $arguments ++= [--max-count ($max | into string)] }
   if $since != null { $arguments ++= [--since $since] }
   if $author != null { $arguments ++= [--author $author] }
@@ -204,13 +213,25 @@ export def show-file [
   }
 }
 
+# A path as numstat gives it for a rename (`a.txt => b.txt`, `sub/{a.txt => b.txt}`, only
+# with --follow): the new one. Any other path as it is.
+def renamed-to []: string -> string {
+  let path = $in
+  let braced = ($path | parse --regex '^(?<before>.*)\{(?<old>[^{}]*) => (?<new>[^{}]*)\}(?<after>.*)$')
+  if ($braced | is-not-empty) {
+    let parts = $braced.0
+    return ($"($parts.before)($parts.new)($parts.after)" | str replace --all '//' '/')
+  }
+  $path | split row " => " | last
+}
+
 # `added<tab>deleted<tab>path` entries; a binary file has `-` for both numbers. The paths
 # come out from the current directory (`here`).
 def parse-numstat [separator: string, here: list<string>]: string -> table {
   $in | split row $separator | where ($it | str trim) != "" | each {|entry|
     let parts = ($entry | split row "\t")
     {
-      path: ($parts | skip 2 | str join "\t" | from-here $here)
+      path: ($parts | skip 2 | str join "\t" | renamed-to | from-here $here)
       added: (if $parts.0 == "-" { null } else { $parts.0 | into int })
       deleted: (if $parts.1 == "-" { null } else { $parts.1 | into int })
     }
