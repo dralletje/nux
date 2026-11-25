@@ -1750,3 +1750,42 @@ fn a_builtin_variable_name_gets_another_name() {
     let run = nux(&[], "[1 2] | each {|nu| $nu }");
     assert!(run.stdout.contains("Hint: `$nu` is Nushell's own"), "{}", run.stdout);
 }
+
+
+/// `into float` refuses a comma: Nushell's own reads "1,500" as 1.5 (a decimal comma), where
+/// it was as likely fifteen hundred. Only the agent knows which, so it says so instead of
+/// guessing.
+#[test]
+fn into_float_refuses_a_comma() {
+    let run = nux(&[], r#"[[item amount]; [a "12.50"] [b "1,500"]] | into float amount"#);
+    assert_eq!(run.status, 1, "{}", run.stdout);
+    assert!(run.stdout.contains(r#""1,500" has a comma: thousands, or a decimal comma?"#), "{}", run.stdout);
+    assert!(run.stdout.contains("row 1, amount"), "{}", run.stdout);
+    assert!(run.stdout.contains("str replace --all ',' ''"), "{}", run.stdout);
+    let run = nux(&[], r#""1,5" | into float"#);
+    assert!(run.stdout.contains(r#""1,5" has a comma"#), "{}", run.stdout);
+    // What has no comma converts as before: a table's column, text, a list, a record.
+    let run = nux(&[], r#"[[item amount]; [a "12.50"] [b " 7 "] [c 3]] | into float amount | to json --raw"#);
+    assert_eq!(run.stdout, "[{\"item\":\"a\",\"amount\":12.5},{\"item\":\"b\",\"amount\":7.0},{\"item\":\"c\",\"amount\":3.0}]\n", "{}", run.stderr);
+    let run = nux(&[], r#"["1e3" 2 "-0.5"] | into float | to json --raw"#);
+    assert_eq!(run.stdout, "[1000.0,2.0,-0.5]\n", "{}", run.stderr);
+    let run = nux(&[], r#"{a: "1.5", b: "x,y"} | into float a | to json --raw"#);
+    assert_eq!(run.stdout, "{\"a\":1.5,\"b\":\"x,y\"}\n", "{}", run.stderr);
+}
+
+/// A value that is not a number, from a CSV file: the error names the value and its row, and
+/// points at the agent's own code, not into nux.
+#[test]
+fn a_value_that_is_not_a_number_is_named() {
+    let run = nux(
+        &[],
+        r#"let dir = (mktemp -d); "item,amount\na,12.50\nb,7\nc,n/a\n" | save $"($dir)/o.csv"
+open $"($dir)/o.csv" | into float amount"#,
+    );
+    assert_eq!(run.status, 1, "{}", run.stdout);
+    assert!(run.stdout.contains(r#""n/a" is not a number"#), "{}", run.stdout);
+    assert!(run.stdout.contains("row 2, amount"), "{}", run.stdout);
+    assert!(run.stdout.contains("line 2"), "{}", run.stdout);
+    assert!(!run.stdout.contains("nux/"), "{}", run.stdout);
+    assert!(run.stdout.contains("try { $row.amount | into float } catch { null }"), "{}", run.stdout);
+}

@@ -3,8 +3,10 @@
 //! To add one: a file with a struct that implements Nushell's `Command`, and a line in
 //! [`add`]. Everything else in nux stays as it is.
 
+pub mod into_float;
 pub mod kept;
 pub mod statement_value;
+pub mod text_tables;
 pub mod to_readable;
 pub mod try_nu;
 
@@ -18,6 +20,10 @@ pub fn add(mut engine: EngineState) -> EngineState {
         working_set.add_decl(Box::new(try_nu::TryNu));
         working_set.add_decl(Box::new(statement_value::StatementValue));
         working_set.add_decl(Box::new(to_readable::ToReadable));
+        // In place of Nushell's own, under the same names (`open x.csv` uses these too).
+        working_set.add_decl(Box::new(text_tables::FromCsvText));
+        working_set.add_decl(Box::new(text_tables::FromTsvText));
+        working_set.add_decl(Box::new(into_float::IntoFloat));
         working_set.render()
     };
     if let Err(error) = engine.merge_delta(delta) {
