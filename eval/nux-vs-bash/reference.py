@@ -91,8 +91,37 @@ def csv_join(folder: Path) -> None:
     (folder / "answer.json").write_text(json.dumps(answer))
 
 
+REPORT_CSV = """
+if (process.argv.includes('--format') && process.argv[process.argv.indexOf('--format') + 1] === 'csv') {
+  const field = (text) => (/[",\\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text)
+  console.log(['customer,orders,total', ...rows.map((r) => [field(r.customer), r.orders, r.total.toFixed(2)].join(','))].join('\\n'))
+} else {
+  console.log(JSON.stringify(rows, null, 2))
+}
+"""
+
+
+def long_session(folder: Path) -> None:
+    git(folder, "checkout", "-q", "-b", "report-csv")
+    money = folder / "src/money.js"
+    money.write_text(money.read_text().replace("Math.floor(sum * 100)", "Math.round(sum * 100)"))
+    discounts = folder / "src/discounts.js"
+    discounts.write_text(discounts.read_text().replace("total > FREE_SHIPPING_FROM", "total >= FREE_SHIPPING_FROM"))
+    git(folder, "commit", "-qam", "fix: round to the nearest cent, free shipping from 50 itself")
+    for place in ["src", "test", "bin"]:
+        for path in (folder / place).rglob("*.js"):
+            path.write_text(path.read_text().replace("calcTotal", "computeTotal"))
+    git(folder, "commit", "-qam", "refactor: calcTotal is computeTotal")
+    report = folder / "bin/report.js"
+    report.write_text(report.read_text().replace("console.log(JSON.stringify(rows, null, 2))\n", REPORT_CSV.lstrip("\n")))
+    git(folder, "commit", "-qam", "feat: report --format csv")
+    truth = check.long_session_truth(folder)
+    answer = {"rounding_bug_commit": truth["bug"], "q1_2026_by_region": truth["q1"], "top_rep_2025": truth["top_rep"]}
+    (folder / "answer.json").write_text(json.dumps(answer))
+
+
 TASKS = {"git-history": git_history, "fix-tests": fix_tests, "log-analysis": log_analysis, "refactor": refactor,
-         "git-messy": git_messy, "test-triage": test_triage, "csv-join": csv_join}
+         "git-messy": git_messy, "test-triage": test_triage, "csv-join": csv_join, "long-session": long_session}
 
 if __name__ == "__main__":
     TASKS[sys.argv[1]](Path(sys.argv[2]))

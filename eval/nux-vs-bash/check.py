@@ -242,8 +242,123 @@ def check_csv_join(folder: Path) -> dict:
     }
 
 
+LONG_HIDDEN_TEST = """import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import * as money from '../src/money.js'
+import * as index from '../src/index.js'
+import { shipping } from '../src/discounts.js'
+import { checkout } from '../src/cart.js'
+
+test('computeTotal, and no calcTotal', () => {
+  assert.equal(money.computeTotal([{ price: 10.006, qty: 1 }]), 10.01)
+  assert.equal(money.computeTotal([{ price: 1.004, qty: 3 }]), 3.01)
+  assert.equal(money.calcTotal, undefined)
+  assert.equal(index.computeTotal([{ price: 2, qty: 2 }]), 4)
+  assert.equal(index.calcTotal, undefined)
+})
+test('free shipping from 50', () => {
+  assert.equal(shipping(50), 0)
+  assert.equal(shipping(49.99), 4.95)
+  assert.deepEqual(checkout([{ price: 25, qty: 2 }]), { subtotal: 50, discounted: 50, shipping: 0, total: 50 })
+})
+"""
+
+# The report as it should be: every order's total rounded to the cent, then the sum.
+LONG_REFERENCE_REPORT = """
+const orders = JSON.parse(require('node:fs').readFileSync(process.argv[1], 'utf8'))
+const total = (items) => Math.round(items.reduce((t, i) => t + i.price * i.qty, 0) * 100) / 100
+const by = new Map()
+for (const order of orders) {
+  const row = by.get(order.customer) ?? { customer: order.customer, orders: 0, total: 0 }
+  row.orders += 1
+  row.total = Math.round((row.total + total(order.items)) * 100) / 100
+  by.set(order.customer, row)
+}
+console.log(JSON.stringify([...by.values()].sort((a, b) => b.total - a.total || a.customer.localeCompare(b.customer))))
+"""
+
+
+def long_session_original(folder: Path) -> Path:
+    """The fixture as made, next to the run's folder, to compare with."""
+    original = folder.parent / (folder.name + "-original")
+    if not original.exists():
+        original.mkdir()
+        setup.long_session(original)
+    return original
+
+
+def long_session_truth(folder: Path) -> dict:
+    import csv
+
+    original = long_session_original(folder)
+    bug = git(original, "log", "--reverse", "--format=%H", "-S", "Math.floor(sum * 100)", "main", "--", "src/money.js").split()[0]
+    q1, by_rep = Counter(), Counter()
+    with open(original / "data/sales.csv", newline="") as f:
+        for row in csv.DictReader(f):
+            amount = float(row["amount"].replace(",", ""))
+            if row["date"] < "2026-04" and row["date"].startswith("2026"):
+                q1[row["region"]] += amount
+            if row["date"].startswith("2025"):
+                by_rep[row["rep"]] += amount
+    report = json.loads(subprocess.run(["node", "-e", LONG_REFERENCE_REPORT, str(original / "data/orders.json")], capture_output=True, text=True, check=True).stdout)
+    return {
+        "bug": bug,
+        "q1": {region: round(total, 2) for region, total in q1.items()},
+        "top_rep": by_rep.most_common(1)[0][0],
+        "report": report,
+        "main": git(original, "rev-parse", "main").strip(),
+        "schema": (original / "data/api-schema.json").read_text(),
+    }
+
+
+def check_long_session(folder: Path) -> dict:
+    import csv
+    import io
+
+    given = answer(folder)
+    truth = long_session_truth(folder)
+    hidden = folder / "test" / "zz-hidden-check.test.js"
+    hidden.write_text(LONG_HIDDEN_TEST)
+    hidden_ok = node_test(folder, str(hidden.relative_to(folder))).returncode == 0
+    hidden.unlink()
+    leftovers = [str(path.relative_to(folder)) for place in ["src", "test", "bin"] for path in sorted((folder / place).rglob("*.js"))
+                 if re.search(r"\bcalcTotal\b", path.read_text())]
+    tests_as_renamed = all((folder / path).exists() and (folder / path).read_text() == text.replace("calcTotal", "computeTotal")
+                           for path, text in setup.LONG_TESTS.items())
+    as_json = subprocess.run(["node", "bin/report.js"], cwd=folder, capture_output=True, text=True)
+    as_csv = subprocess.run(["node", "bin/report.js", "--format", "csv"], cwd=folder, capture_output=True, text=True)
+    try:
+        json_ok = json.loads(as_json.stdout) == truth["report"]
+    except Exception:
+        json_ok = False
+    csv_rows = list(csv.reader(io.StringIO(as_csv.stdout))) if as_csv.returncode == 0 else []
+    csv_ok = csv_rows == [["customer", "orders", "total"]] + [[r["customer"], str(r["orders"]), f"{r['total']:.2f}"] for r in truth["report"]]
+    q1 = given.get("q1_2026_by_region")
+    q1_ok = isinstance(q1, dict) and set(q1) == set(truth["q1"]) and all(
+        isinstance(q1[k], (int, float)) and abs(q1[k] - v) <= 0.01 for k, v in truth["q1"].items())
+    branches = git(folder, "branch", "--format=%(refname:short)").split()
+    subjects = git(folder, "log", "--format=%s", "main..report-csv").splitlines() if "report-csv" in branches else []
+    status = [line for line in git(folder, "status", "--porcelain", "--untracked-files=all").splitlines() if line != "?? answer.json"]
+    return {
+        "tests_pass": node_test(folder).returncode == 0,
+        "hidden_test_passes": hidden_ok,
+        "tests_only_renamed": tests_as_renamed,
+        "no_calcTotal_in_code": not leftovers,
+        "schema_unchanged": (folder / "data/api-schema.json").read_text() == truth["schema"],
+        "rounding_bug_commit": same_commit(folder, given.get("rounding_bug_commit"), truth["bug"]),
+        "report_json_unchanged": json_ok,
+        "report_csv": csv_ok,
+        "q1_2026_by_region": q1_ok,
+        "top_rep_2025": given.get("top_rep_2025") == truth["top_rep"],
+        "branch_has_fix_feat_refactor": all(any(s.startswith(p) for s in subjects) for p in ["fix:", "feat:", "refactor:"]),
+        "main_unchanged": "main" in branches and git(folder, "rev-parse", "main").strip() == truth["main"],
+        "on_branch_and_committed": git(folder, "rev-parse", "--abbrev-ref", "HEAD").strip() == "report-csv" and not status,
+        "answer_not_in_git": "answer.json" not in git(folder, "ls-files"),
+    }
+
+
 CHECKS = {"git-history": check_git_history, "fix-tests": check_fix_tests, "log-analysis": check_log_analysis, "refactor": check_refactor,
-          "git-messy": check_git_messy, "test-triage": check_test_triage, "csv-join": check_csv_join}
+          "git-messy": check_git_messy, "test-triage": check_test_triage, "csv-join": check_csv_join, "long-session": check_long_session}
 
 if __name__ == "__main__":
     task, folder = sys.argv[1], Path(sys.argv[2])

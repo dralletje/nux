@@ -362,8 +362,174 @@ def csv_join(folder: Path) -> None:
                              f"{random.uniform(5, 400):.2f}", random.choice(["EUR", "EUR", "USD", "GBP"]), random.choice(notes)])
 
 
+MONEY_JS = """export function calcTotal(items) {
+  const sum = items.reduce((total, item) => total + item.price * item.qty, 0)
+  return Math.round(sum * 100) / 100
+}
+
+export function formatEur(amount) {
+  return `€${amount.toFixed(2)}`
+}
+"""
+
+DISCOUNTS_JS = """const CODES = { SAVE10: 0.1, HALF: 0.5 }
+export const FREE_SHIPPING_FROM = 50
+
+export function applyDiscount(total, code) {
+  const off = CODES[code] ?? 0
+  return Math.round(total * (1 - off) * 100) / 100
+}
+
+export function shipping(total) {
+  return total >= FREE_SHIPPING_FROM ? 0 : 4.95
+}
+"""
+
+CART_JS = """import { calcTotal } from './money.js'
+import { applyDiscount, shipping } from './discounts.js'
+
+export function checkout(items, code) {
+  const subtotal = calcTotal(items)
+  const discounted = applyDiscount(subtotal, code)
+  const cost = shipping(discounted)
+  return { subtotal, discounted, shipping: cost, total: Math.round((discounted + cost) * 100) / 100 }
+}
+"""
+
+INDEX_JS = """export { calcTotal, formatEur } from './money.js'
+export { applyDiscount, shipping, FREE_SHIPPING_FROM } from './discounts.js'
+export { checkout } from './cart.js'
+"""
+
+REPORT_JS = """#!/usr/bin/env node
+// Orders per customer: how many, and their total in EUR. Highest total first.
+import { readFileSync } from 'node:fs'
+import { calcTotal } from '../src/money.js'
+
+const orders = JSON.parse(readFileSync(new URL('../data/orders.json', import.meta.url), 'utf8'))
+const byCustomer = new Map()
+for (const order of orders) {
+  const row = byCustomer.get(order.customer) ?? { customer: order.customer, orders: 0, total: 0 }
+  row.orders += 1
+  row.total = ROUNDED
+  byCustomer.set(order.customer, row)
+}
+const rows = [...byCustomer.values()].sort((a, b) => b.total - a.total || a.customer.localeCompare(b.customer))
+console.log(JSON.stringify(rows, null, 2))
+"""
+
+LONG_TESTS = {
+    "test/money.test.js": """import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { calcTotal, formatEur } from '../src/money.js'
+
+test('total of nothing is 0', () => assert.equal(calcTotal([]), 0))
+test('total multiplies price by quantity', () => assert.equal(calcTotal([{ price: 2.5, qty: 4 }, { price: 1, qty: 1 }]), 11))
+test('total rounds to the nearest cent', () => assert.equal(calcTotal([{ price: 10.006, qty: 1 }]), 10.01))
+test('formats euros', () => assert.equal(formatEur(3), '€3.00'))
+""",
+    "test/discounts.test.js": """import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { applyDiscount, shipping } from '../src/discounts.js'
+
+test('SAVE10 takes 10% off', () => assert.equal(applyDiscount(80, 'SAVE10'), 72))
+test('an unknown code changes nothing', () => assert.equal(applyDiscount(80, 'NOPE'), 80))
+test('shipping is free from 50', () => assert.equal(shipping(50), 0))
+test('shipping below 50 costs 4.95', () => assert.equal(shipping(49.99), 4.95))
+""",
+    "test/cart.test.js": """import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { checkout } from '../src/cart.js'
+
+test('checkout with a code', () => assert.deepEqual(checkout([{ price: 30, qty: 2 }], 'SAVE10'), { subtotal: 60, discounted: 54, shipping: 0, total: 54 }))
+test('checkout below free shipping', () => assert.deepEqual(checkout([{ price: 10, qty: 1 }]), { subtotal: 10, discounted: 10, shipping: 4.95, total: 14.95 }))
+""",
+}
+
+LONG_CUSTOMERS = ["Ada Park", "Ben Okafor", "Smith, J.", 'Ann "Annie" Lee', "Chen Wei", "Dara Novak", "Eli Haddad",
+                  "Femi Adeyemi", "Gus Lindqvist", "Hana Sato", "Ines Duarte", "Jon Berg", "Kofi Mensah", "Lea Roux"]
+LONG_REPS = ["Mara", "Nico", "Omar", "Pia", "Quinn", "Rosa", "Sven", "Tara", "Umar", "Vera", "Wes", "Yara"]
+LONG_NOTES = ["", "", "renewal", "upsell, Q-end", 'customer said "maybe"', "two lines\nof note", "paid, late"]
+
+
+def long_session(folder: Path) -> None:
+    """A Node project with a history, for a session of many calls: two bugs (one commit made
+    the rounding one, and a decoy "fix: round report totals" did not), a rename that must
+    leave the API schema alone, a CSV option for a report whose customers have commas and
+    quotes in their names, a sales CSV whose large amounts are written "1,234.50", and a
+    branch of conventional commits."""
+    random.seed(11)
+    git(folder, "init", "-q", "-b", "main")
+    write = lambda path, text: ((folder / path).parent.mkdir(parents=True, exist_ok=True), (folder / path).write_text(text))
+    changelog = ["# Changelog\n"]
+
+    def note(line: str) -> None:
+        changelog.append(f"- {line}\n")
+        write("CHANGELOG.md", "".join(changelog))
+
+    write("package.json", json.dumps({"name": "shop", "version": "0.1.0", "type": "module", "private": True, "scripts": {"test": "node --test"}}, indent=2) + "\n")
+    write("README.md", "# shop\n\nMoney, discounts and checkout for the shop.\n\n    npm test\n")
+    commit_as(folder, "chore: start the shop package", "alice", "2026-01-05T10:00:00+01:00")
+    write("src/money.js", MONEY_JS)
+    commit_as(folder, "feat: calcTotal and formatEur", "alice", "2026-01-07T10:00:00+01:00")
+    write("test/money.test.js", LONG_TESTS["test/money.test.js"])
+    commit_as(folder, "test: money", "alice", "2026-01-08T10:00:00+01:00")
+    write("src/discounts.js", DISCOUNTS_JS)
+    commit_as(folder, "feat: discount codes and shipping", "bob", "2026-01-12T10:00:00+01:00")
+    write("test/discounts.test.js", LONG_TESTS["test/discounts.test.js"])
+    commit_as(folder, "test: discounts", "bob", "2026-01-13T10:00:00+01:00")
+    write("src/cart.js", CART_JS)
+    write("src/index.js", INDEX_JS)
+    commit_as(folder, "feat: checkout", "carol", "2026-01-20T10:00:00+01:00")
+    write("test/cart.test.js", LONG_TESTS["test/cart.test.js"])
+    commit_as(folder, "test: checkout", "carol", "2026-01-21T10:00:00+01:00")
+    orders = []
+    for n in range(80):
+        items = [{"sku": f"sku-{random.randint(1, 40):02d}", "price": round(random.uniform(1, 60), random.choice([2, 2, 3])), "qty": random.randint(1, 4)}
+                 for _ in range(random.randint(1, 4))]
+        orders.append({"id": f"o{n:03d}", "customer": random.choice(LONG_CUSTOMERS), "items": items})
+    write("data/orders.json", json.dumps(orders, indent=1) + "\n")
+    write("bin/report.js", REPORT_JS.replace("ROUNDED", "row.total + calcTotal(order.items)"))
+    commit_as(folder, "feat: per-customer report", "dave", "2026-02-02T10:00:00+01:00")
+    write("README.md", "# shop\n\nMoney, discounts and checkout for the shop.\n\n    npm test\n\nOrders per customer, as JSON:\n\n    node bin/report.js\n")
+    commit_as(folder, "docs: how to run the report", "dave", "2026-02-03T10:00:00+01:00")
+    write("data/api-schema.json", json.dumps({"service": "shop", "operations": [
+        {"operationId": "calcTotal", "method": "POST", "path": "/cart/total"},
+        {"operationId": "applyDiscount", "method": "POST", "path": "/cart/discount"},
+        {"operationId": "checkout", "method": "POST", "path": "/cart/checkout"}]}, indent=2) + "\n")
+    commit_as(folder, "chore: public api schema", "alice", "2026-02-15T10:00:00+01:00")
+    note("0.2.0: checkout and the report")
+    commit_as(folder, "docs: changelog for 0.2.0", "alice", "2026-02-20T10:00:00+01:00")
+    write("bin/report.js", REPORT_JS.replace("ROUNDED", "Math.round((row.total + calcTotal(order.items)) * 100) / 100"))
+    commit_as(folder, "fix: round report totals to cents", "dave", "2026-03-03T10:00:00+01:00")
+    note("report totals are whole cents")
+    commit_as(folder, "docs: changelog", "dave", "2026-03-04T10:00:00+01:00")
+    write("package.json", json.dumps({"name": "shop", "version": "0.2.0", "type": "module", "private": True, "scripts": {"test": "node --test"}}, indent=2) + "\n")
+    commit_as(folder, "chore: 0.2.0", "alice", "2026-03-10T10:00:00+01:00")
+    write("src/money.js", MONEY_JS.replace("Math.round(sum * 100)", "Math.floor(sum * 100)"))
+    commit_as(folder, "refactor: simpler rounding in calcTotal", "bob", "2026-04-02T10:00:00+01:00")
+    note("calcTotal is simpler")
+    commit_as(folder, "docs: changelog", "bob", "2026-04-03T10:00:00+01:00")
+    write("README.md", "# shop\n\nMoney, discounts and checkout for the shop.\n\n    npm test\n\nOrders per customer, as JSON:\n\n    node bin/report.js\n\nThe public API is described in data/api-schema.json; its operation names are fixed.\n")
+    commit_as(folder, "docs: the api schema is public", "alice", "2026-05-11T10:00:00+01:00")
+    write("src/discounts.js", DISCOUNTS_JS.replace("total >= FREE_SHIPPING_FROM", "total > FREE_SHIPPING_FROM").replace("const CODES = { SAVE10: 0.1, HALF: 0.5 }", "const CODES = {\n  SAVE10: 0.1,\n  HALF: 0.5,\n}"))
+    commit_as(folder, "style: tidy discount thresholds", "carol", "2026-06-10T10:00:00+01:00")
+    note("0.3.0: tidier code")
+    commit_as(folder, "docs: changelog for 0.3.0", "carol", "2026-06-12T10:00:00+01:00")
+    import csv
+
+    with open(folder / "data/sales.csv", "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["date", "region", "rep", "amount", "note"])
+        for _ in range(3000):
+            amount = random.uniform(20, 2600)
+            writer.writerow([f"{random.choice([2025, 2026])}-{random.randint(1, 12):02d}-{random.randint(1, 28):02d}", random.choice(["North", "South", "East", "West"]),
+                             random.choice(LONG_REPS), f"{amount:,.2f}", random.choice(LONG_NOTES)])
+    commit_as(folder, "data: sales export", "dave", "2026-09-01T10:00:00+01:00")
+
+
 TASKS = {"git-history": git_history, "fix-tests": fix_tests, "log-analysis": log_analysis, "refactor": refactor,
-         "git-messy": git_messy, "test-triage": test_triage, "csv-join": csv_join}
+         "git-messy": git_messy, "test-triage": test_triage, "csv-join": csv_join, "long-session": long_session}
 
 if __name__ == "__main__":
     task, folder = sys.argv[1], Path(sys.argv[2])
