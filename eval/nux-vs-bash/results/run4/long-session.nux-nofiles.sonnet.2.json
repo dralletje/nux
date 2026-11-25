@@ -1,0 +1,78 @@
+{
+  "name": "long-session.nux-nofiles.sonnet.2",
+  "task": "long-session",
+  "tool": "nux-nofiles",
+  "model": "sonnet",
+  "rep": 2,
+  "passed": true,
+  "checks": {
+    "tests_pass": true,
+    "hidden_test_passes": true,
+    "tests_only_renamed": true,
+    "no_calcTotal_in_code": true,
+    "schema_unchanged": true,
+    "rounding_bug_commit": true,
+    "report_json_unchanged": true,
+    "report_csv": true,
+    "q1_2026_by_region": true,
+    "top_rep_2025": true,
+    "branch_has_fix_feat_refactor": true,
+    "main_unchanged": true,
+    "on_branch_and_committed": true,
+    "answer_not_in_git": true
+  },
+  "exit_code": 0,
+  "wall_seconds": 23.3,
+  "duration_ms": 20355,
+  "num_turns": 7,
+  "cost_usd": 0.1217278,
+  "usage": {
+    "input_tokens": 14,
+    "cache_creation_input_tokens": 19909,
+    "cache_read_input_tokens": 170438,
+    "output_tokens": 2502,
+    "output_tokens_details": {
+      "thinking_tokens": 173
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 19909,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "global",
+    "iterations": [
+      {
+        "input_tokens": 2,
+        "output_tokens": 578,
+        "cache_read_input_tokens": 31410,
+        "cache_creation_input_tokens": 836,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 836
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "models_used": [
+    "claude-sonnet-5-5"
+  ],
+  "is_error": false,
+  "result": "All six items are done, and `node --test` now passes 10 of 10.\n\n1. **Bugs fixed:** `calcTotal` used `Math.floor` instead of `Math.round`, and `shipping` used `>` instead of `>=` at the free-shipping threshold of 50.\n2. **Rounding bug commit:** `5b6a1927b2d7d73f64964e6253f74c17177e52da`, \"refactor: simpler rounding in calcTotal\", which switched `Math.round` to `Math.floor`.\n3. **Rename:** `calcTotal` is now `computeTotal` in `src/`, `test/` and `bin/`. `data/api-schema.json` is untouched. I left the mention in `CHANGELOG.md` as it was, since it's outside the folders you listed.\n4. **CSV output:** `node bin/report.js --format csv` prints the `customer,orders,total` header, totals to two decimals, and quotes values the standard CSV way. For example, `\"Smith, J.\"` comes out wrapped in quotes. Without the flag the JSON is unchanged.\n5. **Sales answers**, in `answer.json`:\n   - Q1 2026 by region: North 118124.37, South 108328.07, East 119248.04, West 145748.98.\n   - Top rep in 2025: Omar, at about 191,311.45.\n\n   The amounts in `data/sales.csv` contain thousands separators, quoted fields and multi-line notes. I parsed them as proper CSV, so those didn't skew the totals.\n6. **Git:** branch `report-csv` is cut from `main`, with commits `fix:`, `refactor:` and `feat:` in that order. `main` is unchanged, and `answer.json` is untracked and not committed.",
+  "session_id": "ce5fdcb2-169e-4b56-a3c9-1fa300050348",
+  "transcript": "/home/coder/.claude/projects/-tmp-claude-1000--home-coder-9ee3d5d3-1d30-4a27-ab1a-cf3371329911-scratchpad-run4b-long-session-nux-nofiles-sonnet-2/ce5fdcb2-169e-4b56-a3c9-1fa300050348.jsonl",
+  "tool_calls": {
+    "Bash": 6
+  },
+  "bash_calls": 6,
+  "bash_errors": 1,
+  "bash_blocked": 0,
+  "bash_output_chars": 23396,
+  "nux_help_calls": 1
+}

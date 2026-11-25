@@ -1,0 +1,78 @@
+{
+  "name": "long-session.bash.opus.2",
+  "task": "long-session",
+  "tool": "bash",
+  "model": "opus",
+  "rep": 2,
+  "passed": true,
+  "checks": {
+    "tests_pass": true,
+    "hidden_test_passes": true,
+    "tests_only_renamed": true,
+    "no_calcTotal_in_code": true,
+    "schema_unchanged": true,
+    "rounding_bug_commit": true,
+    "report_json_unchanged": true,
+    "report_csv": true,
+    "q1_2026_by_region": true,
+    "top_rep_2025": true,
+    "branch_has_fix_feat_refactor": true,
+    "main_unchanged": true,
+    "on_branch_and_committed": true,
+    "answer_not_in_git": true
+  },
+  "exit_code": 0,
+  "wall_seconds": 43.0,
+  "duration_ms": 39704,
+  "num_turns": 8,
+  "cost_usd": 0.2509944,
+  "usage": {
+    "input_tokens": 16,
+    "cache_creation_input_tokens": 16390,
+    "cache_read_input_tokens": 186052,
+    "output_tokens": 4130,
+    "output_tokens_details": {
+      "thinking_tokens": 375
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 16390,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "global",
+    "iterations": [
+      {
+        "input_tokens": 2,
+        "output_tokens": 931,
+        "cache_read_input_tokens": 28006,
+        "cache_creation_input_tokens": 712,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 712
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "models_used": [
+    "claude-opus-5-5"
+  ],
+  "is_error": false,
+  "result": "All six tasks are done. The tests pass (10 of 10), `main` hasn't moved from `f667313`, and `answer.json` isn't tracked by git.\n\n**1. Bugs in `src/`:** there were two.\n- `src/money.js`: `calcTotal` used `Math.floor`, which always rounds down, so 10.006 came out as 10. It now uses `Math.round`, so it rounds to the nearest cent.\n- `src/discounts.js`: shipping used `>`, so an order of exactly 50 still paid shipping. It's back to `>=`; this had changed in `b3855da`, a commit labelled only as a style tidy.\n\n**2. Rounding bug commit:** `5b6a1927b2d7d73f64964e6253f74c17177e52da`, \"refactor: simpler rounding in calcTotal\". That's where `Math.round` became `Math.floor`.\n\n**3. Rename:** `calcTotal` is now `computeTotal` everywhere in `src/`, `test/` and `bin/`. `calcTotal` is still the operation name in `data/api-schema.json`, and the old CHANGELOG entry mentioning it is unchanged.\n\n**4. `--format csv`:** prints the header `customer,orders,total`, then the same rows in the same order, with totals to two decimals. Fields are quoted the standard way, e.g. `\"Smith, J.\"` and `\"Ann \"\"Annie\"\" Lee\"`. `--format=csv` also works. Without the flag the JSON output is byte-for-byte what it was before. Two additions you didn't ask for: an unknown format (e.g. `xml`) prints an error and exits with code 1, and I added a line to the README about the new flag.\n\n**5. Sales figures:** the export has 3000 rows, with no duplicates. Amounts like `\"2,075.67\"` use a comma as the thousands separator, and some no",
+  "session_id": "4077c1cb-514d-431d-991c-1649a80e0278",
+  "transcript": "/home/coder/.claude/projects/-tmp-claude-1000--home-coder-9ee3d5d3-1d30-4a27-ab1a-cf3371329911-scratchpad-run4b-long-session-bash-opus-2/4077c1cb-514d-431d-991c-1649a80e0278.jsonl",
+  "tool_calls": {
+    "Bash": 7
+  },
+  "bash_calls": 7,
+  "bash_errors": 1,
+  "bash_blocked": 0,
+  "bash_output_chars": 11072,
+  "nux_help_calls": 0
+}

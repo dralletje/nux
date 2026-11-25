@@ -1,0 +1,80 @@
+{
+  "name": "long-session.nux-nofiles.opus.1",
+  "task": "long-session",
+  "tool": "nux-nofiles",
+  "model": "opus",
+  "rep": 1,
+  "passed": true,
+  "checks": {
+    "tests_pass": true,
+    "hidden_test_passes": true,
+    "tests_only_renamed": true,
+    "no_calcTotal_in_code": true,
+    "schema_unchanged": true,
+    "rounding_bug_commit": true,
+    "report_json_unchanged": true,
+    "report_csv": true,
+    "q1_2026_by_region": true,
+    "top_rep_2025": true,
+    "branch_has_fix_feat_refactor": true,
+    "main_unchanged": true,
+    "on_branch_and_committed": true,
+    "answer_not_in_git": true
+  },
+  "exit_code": 0,
+  "wall_seconds": 52.4,
+  "duration_ms": 49030,
+  "num_turns": 15,
+  "cost_usd": 0.3725973999999999,
+  "usage": {
+    "input_tokens": 30,
+    "cache_creation_input_tokens": 24188,
+    "cache_read_input_tokens": 431767,
+    "output_tokens": 4631,
+    "output_tokens_details": {
+      "thinking_tokens": 407
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 24188,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "global",
+    "iterations": [
+      {
+        "input_tokens": 2,
+        "output_tokens": 830,
+        "cache_read_input_tokens": 35802,
+        "cache_creation_input_tokens": 723,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 723
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "models_used": [
+    "claude-opus-5-5"
+  ],
+  "is_error": false,
+  "result": "All six tasks are done. All 10 tests pass, and `main` is unchanged at `f667313`.\n\n1. **Bugs fixed (two):**\n   - `src/money.js`: `calcTotal` used `Math.floor`, which cut totals down instead of rounding them to the nearest cent.\n   - `src/discounts.js`: shipping was free only above 50, not from 50 (`>` instead of `>=`). Commit `b3855da` brought this in; its subject calls it a tidy-up.\n2. **Rounding bug commit:** `5b6a1927b2d7d73f64964e6253f74c17177e52da` (\"refactor: simpler rounding in calcTotal\"). It changed `Math.round` to `Math.floor`.\n3. **Rename:** `calcTotal` is now `computeTotal` everywhere in `src/`, `test/` and `bin/`. `data/api-schema.json` still says `calcTotal`. I also left the old changelog line that mentions `calcTotal`, since it describes a past release.\n4. **`--format csv`:** prints the header `customer,orders,total`, then the same rows in the same order, with totals to two decimals. Fields with commas or quotes are quoted the standard way, e.g. `\"Smith, J.\"` and `\"Ann \"\"Annie\"\" Lee\"`. I checked that reading the CSV back gives exactly the JSON output. `--format=csv` also works, and an unknown format exits with an error. Without the flag the JSON is printed as before. I added a line about it to the README.\n5. **Sales (`answer.json`):**\n   - Q1 2026 totals: East 119,248.04, North 118,124.37, South 108,328.07, West 145,748.98.\n   - Top rep in 2025: **Omar**, with 191,311.45 (Rosa is next with 176,147.77).\n\n   I summed in whole cents so the totals don't drift. The a",
+  "session_id": "43a8ec23-b519-4294-b0d6-2f94467a6037",
+  "transcript": "/home/coder/.claude/projects/-tmp-claude-1000--home-coder-9ee3d5d3-1d30-4a27-ab1a-cf3371329911-scratchpad-run4b-long-session-nux-nofiles-opus-1/43a8ec23-b519-4294-b0d6-2f94467a6037.jsonl",
+  "tool_calls": {
+    "Bash": 11,
+    "Edit": 2,
+    "Write": 1
+  },
+  "bash_calls": 11,
+  "bash_errors": 1,
+  "bash_blocked": 1,
+  "bash_output_chars": 28144,
+  "nux_help_calls": 1
+}

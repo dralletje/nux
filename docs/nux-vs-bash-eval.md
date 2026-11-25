@@ -300,3 +300,67 @@ in all runs now, the most common Nushell error here); `=~` and `!~` on a float t
    rename it, e.g. `answer`.
 3. A hint for `=~` on a number: "the value is a number; `into string` first, or compare
    with `==`/`>`".
+
+
+## Run 4 (2026-11-25): text CSV, and a task of six parts
+
+Since run 3, nux changed: `from csv`/`open x.csv` give text as written (no guessing per
+cell), `into float`/`into int` read 1,500.25 and refuse "1,5" (`--decimal-comma` for
+1.500,25), a hint for `let ans`, and the file-tools rule is out of the user's CLAUDE.md.
+Both parts use nux-nofiles (the instructions as they are now) and a release build.
+
+### 4a: csv-join again (nux-nofiles × sonnet, opus × 3)
+
+| | runs | passed | turns | cost | errors (total) |
+|---|---|---|---|---|---|
+| bash (run 3) | 4 | 4 | 3.5 | $0.093 | 0 |
+| nux-nofiles (run 3) | 4 | 4 | 5.8 | $0.140 | 4 |
+| nux-nofiles (run 4) | 6 | 5 | 5.7 | $0.129 | 5 |
+
+- `=~` on a number is gone: amounts are text, and agents wrote `into float amount`
+  themselves (opus in its first line of code).
+- `let ans` three more times (all opus). The new hint fixed each in the next call, but did
+  not prevent it: the name comes from habit, before any error.
+- The failed run had the right numbers and an empty `answer.json`: it ended with
+  `{...} | tee { to json | save --force answer.json }`, and Nushell's `tee` runs the closure
+  for one value on a thread no one waits for, so nux could exit first. Fixed in nux since
+  (`tee` on one value runs its closure to the end; `tee_on_one_value_finishes_its_closure`).
+- The others: `join` with two of its mode flags, and `--right-on` (no such flag).
+
+### 4b: long-session (bash, nux-nofiles × sonnet, opus × 2)
+
+One Node project with a history (20 commits), six things to do: fix two bugs, find the
+commit that made one (past a decoy "fix: round report totals to cents"), rename
+`calcTotal` everywhere but the public API schema, add `--format csv` to a report whose
+customers have commas and quotes in their names, totals from a sales CSV whose large
+amounts are written "1,234.50", and a branch of `fix:`/`feat:`/`refactor:` commits with
+`main` left alone. 14 checks; an untouched fixture fails 11, `reference.py` passes.
+
+All 8 passed. Per run:
+
+| model | tool | turns | Bash calls | cost | duration | errors (total) | output read |
+|---|---|---|---|---|---|---|---|
+| opus | bash | 8.0 | 7.0 | $0.250 | 42 s | 1 | 10.8 k chars |
+| opus | nux-nofiles | 13.0 | 10.0 | $0.349 | 50 s | 2 | 25.7 k chars |
+| sonnet | bash | 6.5 | 5.5 | $0.097 | 24 s | 0 | 9.0 k chars |
+| sonnet | nux-nofiles | 8.0 | 7.0 | $0.126 | 25 s | 3 | 23.7 k chars |
+
+nux costs +40% (opus) and +30% (sonnet), about the gap of the short tasks. What the
+"long session" did not do is be long: six tasks took 6-15 turns, because every agent
+looked at everything in one or two big calls, then did the work in a few more. The fixed
+cost (the manual, ~11.7 k of the output read) is then not small beside the rest.
+
+nux's errors: `2>&1` twice (Nushell says `out+err>`; the agents fixed it at once),
+`format number --decimals` (no such flag), `git show` (nux's `git` has no `show`; the hint
+lists `^git show` and nux's own), and one blocked call (two nux calls in one Bash call).
+The bash agents' one error: a `head` at the end of a long `;` chain that exited 1.
+
+### What run 4 shows
+
+- The nux changes did what they were for: no more errors on numbers in CSV, and the `ans`
+  error costs one call instead of a guess. That did not change cost much: the errors were
+  never the large part.
+- With six tasks in one session the gap stays 30-40%. Agents do not make sessions long
+  by themselves on tasks like these; they batch. A session that is long because a person
+  keeps asking (hundreds of calls over hours) is still not measured here: that needs a
+  scripted multi-turn conversation (`claude -p --resume` per step), not one prompt.

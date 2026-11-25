@@ -1,0 +1,79 @@
+{
+  "name": "long-session.nux-nofiles.opus.2",
+  "task": "long-session",
+  "tool": "nux-nofiles",
+  "model": "opus",
+  "rep": 2,
+  "passed": true,
+  "checks": {
+    "tests_pass": true,
+    "hidden_test_passes": true,
+    "tests_only_renamed": true,
+    "no_calcTotal_in_code": true,
+    "schema_unchanged": true,
+    "rounding_bug_commit": true,
+    "report_json_unchanged": true,
+    "report_csv": true,
+    "q1_2026_by_region": true,
+    "top_rep_2025": true,
+    "branch_has_fix_feat_refactor": true,
+    "main_unchanged": true,
+    "on_branch_and_committed": true,
+    "answer_not_in_git": true
+  },
+  "exit_code": 0,
+  "wall_seconds": 48.0,
+  "duration_ms": 45610,
+  "num_turns": 11,
+  "cost_usd": 0.3250244,
+  "usage": {
+    "input_tokens": 22,
+    "cache_creation_input_tokens": 22135,
+    "cache_read_input_tokens": 304782,
+    "output_tokens": 4345,
+    "output_tokens_details": {
+      "thinking_tokens": 541
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 22135,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "global",
+    "iterations": [
+      {
+        "input_tokens": 2,
+        "output_tokens": 801,
+        "cache_read_input_tokens": 33999,
+        "cache_creation_input_tokens": 473,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 473
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "models_used": [
+    "claude-opus-5-5"
+  ],
+  "is_error": false,
+  "result": "I've done all six tasks, and all tests now pass. The work is in three commits on a new branch `report-csv`, made from `main`. `main` is unchanged, and `answer.json` is untracked and wasn't committed.\n\n1. **Bugs fixed:** there were two.\n   - `src/money.js`: totals were rounded down (`Math.floor`) instead of to the nearest cent, so 10.006 came out as 10.00. It now uses `Math.round`.\n   - `src/discounts.js`: shipping was free only above 50, not from 50. The check is now `>=`.\n2. **Rounding bug commit:** `5b6a1927b2d7d73f64964e6253f74c17177e52da` (\"refactor: simpler rounding in calcTotal\"). That's the commit that changed `Math.round` to `Math.floor`.\n3. **Rename:** `calcTotal` is now `computeTotal` in `src/`, `test/` and `bin/`. `data/api-schema.json` still says `calcTotal`. `CHANGELOG.md` also still mentions `calcTotal`, because it's a record of past changes rather than code.\n4. **`--format csv`:** both `--format csv` and `--format=csv` work. The output has the header `customer,orders,total`, the same rows in the same order as the JSON, and totals with two decimals. Names with a comma or quote are quoted, e.g. `\"Smith, J.\"` and `\"Ann \"\"Annie\"\" Lee\"`. I checked that the CSV rows match the JSON row for row. Without the flag the JSON prints as before. Two choices you might want to change:\n   - Lines end in `\\n` rather than the `\\r\\n` the CSV standard specifies; CSV readers accept both.\n   - An unknown format now prints an error and exits with code 1.\n5. **Sales figures:** the expor",
+  "session_id": "96a22377-4a9b-4524-b921-25ef45051111",
+  "transcript": "/home/coder/.claude/projects/-tmp-claude-1000--home-coder-9ee3d5d3-1d30-4a27-ab1a-cf3371329911-scratchpad-run4b-long-session-nux-nofiles-opus-2/96a22377-4a9b-4524-b921-25ef45051111.jsonl",
+  "tool_calls": {
+    "Bash": 9,
+    "Edit": 1
+  },
+  "bash_calls": 9,
+  "bash_errors": 1,
+  "bash_blocked": 0,
+  "bash_output_chars": 23226,
+  "nux_help_calls": 1
+}
