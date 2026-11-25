@@ -1827,3 +1827,28 @@ fn into_float_and_int_read_a_decimal_comma() {
         assert!(run.stdout.contains(other), "{code}: {}", run.stdout);
     }
 }
+
+
+/// `tee` on one value (a record, a number) finishes before the call does. Nushell's runs the
+/// closure on a thread no one waits for: nux could end first, and `{...} | tee { save x }`
+/// left no file, or an empty one (an agent lost its answer.json this way in the eval).
+#[test]
+fn tee_on_one_value_finishes_its_closure() {
+    let dir = scratch().join(format!("tee-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    for n in 0..8 {
+        let file = dir.join(format!("out-{n}.json"));
+        let run = nux(&[], &format!("{{a: {n}}} | tee {{ to json --raw | save --force '{}' }}", file.display()));
+        assert_eq!(run.status, 0, "{}", run.stdout);
+        assert_eq!(std::fs::read_to_string(&file).unwrap_or_default(), format!("{{\"a\":{n}}}"));
+    }
+    // A failure in the closure is an error of the call, not lost on a thread.
+    let run = nux(&[], "5 | tee { error make {msg: 'inside tee'} }");
+    assert_eq!(run.status, 1, "{}", run.stdout);
+    assert!(run.stdout.contains("inside tee"), "{}", run.stdout);
+    // The value goes on as it was; lists still stream through Nushell's own.
+    let run = nux(&[], "{a: 1} | tee { ignore } | get a");
+    assert_eq!(run.stdout, "1\n", "{}", run.stdout);
+    let run = nux(&[], "[1 2 3] | tee { math sum | ignore } | math sum");
+    assert_eq!(run.stdout, "6\n", "{}", run.stdout);
+}

@@ -6,6 +6,7 @@
 pub mod kept;
 pub mod numbers;
 pub mod statement_value;
+pub mod tee;
 pub mod text_tables;
 pub mod to_readable;
 pub mod try_nu;
@@ -25,6 +26,7 @@ pub fn add(mut engine: EngineState) -> EngineState {
         working_set.add_decl(Box::new(text_tables::FromTsvText));
         working_set.add_decl(Box::new(numbers::IntoFloat));
         working_set.add_decl(Box::new(numbers::IntoInt));
+        working_set.add_decl(Box::new(tee::Tee));
         working_set.render()
     };
     if let Err(error) = engine.merge_delta(delta) {
