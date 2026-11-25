@@ -3,23 +3,23 @@
 //! Nushell's own `into float` read a comma as a decimal comma ("1,500" became 1.5) and its
 //! `into int` read it as a thousands separator ("1,5" became 15), without a word. Here:
 //!
-//! - `into float`, `into int`: as the US writes numbers. A comma groups thousands (1,500.25),
-//!   and a comma anywhere else is an error.
-//! - `into float-eu`, `into int-eu`: as much of Europe writes them. A dot groups thousands, a
-//!   comma is the decimal one (1.500,25); anything else with a dot or comma is an error.
+//! - `into float`, `into int`: a decimal point. A comma groups thousands (1,500.25), and a
+//!   comma anywhere else is an error.
+//! - with `--decimal-comma`: as much of Europe writes numbers. A dot groups thousands, a comma
+//!   is the decimal one (1.500,25); a dot or comma anywhere else is an error.
 //!
-//! Each error names the value, its row and column, and the other command. A value that is
-//! not a number at all is named too (Nushell's says "can't convert string to float" near
-//! where the table came from). The texts are checked and rewritten first (1,500.25 becomes
-//! 1500.25); then Nushell's own converts them, as before.
+//! Each error names the value, its row and column, and the other way. A value that is not a
+//! number at all is named too (Nushell's says "can't convert string to float" near where the
+//! table came from). The texts are checked and rewritten first (1,500.25 becomes 1500.25);
+//! then Nushell's own converts them, as before.
 
 use nu_engine::command_prelude::*;
 use nu_protocol::{ast::CellPath, shell_error::generic::GenericError};
 
 #[derive(Clone, Copy, PartialEq)]
 enum Style {
-    Us,
-    Eu,
+    Point,
+    Comma,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -34,11 +34,7 @@ pub struct IntoFloat;
 #[derive(Clone)]
 pub struct IntoInt;
 
-#[derive(Clone)]
-pub struct IntoFloatEu;
-
-#[derive(Clone)]
-pub struct IntoIntEu;
+const DECIMAL_COMMA: &str = "decimal-comma";
 
 impl Command for IntoFloat {
     fn name(&self) -> &str {
@@ -48,24 +44,32 @@ impl Command for IntoFloat {
         nu_command::IntoFloat.description()
     }
     fn extra_description(&self) -> &str {
-        "In nux a text is read as the US writes numbers: a comma groups thousands (\"1,500.25\" is \
-         1500.25), and a comma anywhere else is an error (\"1,5\"). For 1.500,25 and 1,5: into float-eu. \
-         A text that is not a number is named in the error, with its row."
+        "In nux a comma in a text groups thousands (\"1,500.25\" is 1500.25), and a comma anywhere else \
+         is an error (\"1,5\"). With --decimal-comma it is the other way around: \"1.500,25\" is 1500.25, \
+         \"1,5\" is 1.5. A text that is not a number is named in the error, with its row."
     }
     fn signature(&self) -> Signature {
-        nu_command::IntoFloat.signature()
+        nu_command::IntoFloat.signature().switch(
+            DECIMAL_COMMA,
+            "A comma is the decimal one and a dot groups thousands: 1.500,25.",
+            None,
+        )
     }
     fn search_terms(&self) -> Vec<&str> {
-        nu_command::IntoFloat.search_terms()
+        let mut terms = nu_command::IntoFloat.search_terms();
+        terms.extend(["decimal comma", "european", "thousands separator"]);
+        terms
     }
     fn examples(&self) -> Vec<Example<'_>> {
         vec![
             Example { description: "Convert a column of a table", example: "[[num]; ['5.01']] | into float num", result: None },
             Example { description: "Commas between thousands", example: "'1,500.25' | into float", result: None },
+            Example { description: "A decimal comma, dots between thousands", example: "'1.500,25' | into float --decimal-comma", result: None },
         ]
     }
     fn run(&self, engine_state: &EngineState, stack: &mut Stack, call: &Call, input: PipelineData) -> Result<PipelineData, ShellError> {
-        let input = rewrite(engine_state, stack, call, input, Style::Us, Kind::Float)?;
+        let style = style(engine_state, stack, call)?;
+        let input = rewrite(engine_state, stack, call, input, style, Kind::Float)?;
         nu_command::IntoFloat.run(engine_state, stack, call, input)
     }
 }
@@ -78,28 +82,32 @@ impl Command for IntoInt {
         nu_command::IntoInt.description()
     }
     fn extra_description(&self) -> &str {
-        "In nux a text is read as the US writes numbers: a comma groups thousands (\"1,500\" is 1500), \
-         and a comma anywhere else is an error (\"1,5\"). For 1.500: into int-eu. --radix other than 10 \
-         reads the text as Nushell does."
+        "In nux a comma in a text groups thousands (\"1,500\" is 1500), and a comma anywhere else is an \
+         error (\"1,5\"). With --decimal-comma a dot groups thousands: \"1.500\" is 1500. --radix other \
+         than 10 reads the text as Nushell does."
     }
     fn signature(&self) -> Signature {
-        nu_command::IntoInt.signature()
+        nu_command::IntoInt.signature().switch(DECIMAL_COMMA, "A dot groups thousands: 1.500.", None)
     }
     fn search_terms(&self) -> Vec<&str> {
-        nu_command::IntoInt.search_terms()
+        let mut terms = nu_command::IntoInt.search_terms();
+        terms.extend(["european", "thousands separator"]);
+        terms
     }
     fn examples(&self) -> Vec<Example<'_>> {
         vec![
             Example { description: "Convert a column of a table", example: "[[num]; ['-5']] | into int num", result: None },
             Example { description: "Commas between thousands", example: "'1,500' | into int", result: None },
+            Example { description: "Dots between thousands", example: "'1.500' | into int --decimal-comma", result: None },
             Example { description: "Another base", example: "'ff' | into int --radix 16", result: None },
         ]
     }
     fn run(&self, engine_state: &EngineState, stack: &mut Stack, call: &Call, input: PipelineData) -> Result<PipelineData, ShellError> {
+        let style = style(engine_state, stack, call)?;
         // Another base has its own digits: Nushell's own reads those.
         let radix: Option<i64> = call.get_flag(engine_state, stack, "radix")?;
         let input = if radix.is_none_or(|radix| radix == 10) {
-            rewrite(engine_state, stack, call, input, Style::Us, Kind::Int)?
+            rewrite(engine_state, stack, call, input, style, Kind::Int)?
         } else {
             input
         };
@@ -107,71 +115,13 @@ impl Command for IntoInt {
     }
 }
 
-impl Command for IntoFloatEu {
-    fn name(&self) -> &str {
-        "into float-eu"
-    }
-    fn description(&self) -> &str {
-        "Convert text written the European way to a float: a dot groups thousands, a comma is the decimal one (1.500,25)."
-    }
-    fn extra_description(&self) -> &str {
-        "\"1,5\" is 1.5 and \"1.500\" is 1500. A text with a dot or comma elsewhere is an error (\"1.5\"): for \
-         numbers written the US way, into float."
-    }
-    fn signature(&self) -> Signature {
-        renamed(nu_command::IntoFloat.signature(), self.name())
-    }
-    fn search_terms(&self) -> Vec<&str> {
-        vec!["european", "decimal comma", "number", "locale"]
-    }
-    fn examples(&self) -> Vec<Example<'_>> {
-        vec![
-            Example { description: "Convert a column of a table", example: "[[price]; ['12,50']] | into float-eu price", result: None },
-            Example { description: "Dots between thousands", example: "'1.500,25' | into float-eu", result: None },
-        ]
-    }
-    fn run(&self, engine_state: &EngineState, stack: &mut Stack, call: &Call, input: PipelineData) -> Result<PipelineData, ShellError> {
-        let input = rewrite(engine_state, stack, call, input, Style::Eu, Kind::Float)?;
-        nu_command::IntoFloat.run(engine_state, stack, call, input)
-    }
-}
-
-impl Command for IntoIntEu {
-    fn name(&self) -> &str {
-        "into int-eu"
-    }
-    fn description(&self) -> &str {
-        "Convert text written the European way to an int: a dot groups thousands (1.500)."
-    }
-    fn extra_description(&self) -> &str {
-        "\"1.500\" is 1500. A text with a comma, or a dot elsewhere, is an error: for numbers written the US \
-         way, into int."
-    }
-    fn signature(&self) -> Signature {
-        // Without --radix, --endian and --signed: those are for other bases and binary.
-        let mut signature = renamed(nu_command::IntoInt.signature(), self.name());
-        signature.named.retain(|flag| flag.long == "help");
-        signature
-    }
-    fn search_terms(&self) -> Vec<&str> {
-        vec!["european", "number", "locale"]
-    }
-    fn examples(&self) -> Vec<Example<'_>> {
-        vec![Example { description: "Dots between thousands", example: "'1.234.567' | into int-eu", result: None }]
-    }
-    fn run(&self, engine_state: &EngineState, stack: &mut Stack, call: &Call, input: PipelineData) -> Result<PipelineData, ShellError> {
-        let input = rewrite(engine_state, stack, call, input, Style::Eu, Kind::Int)?;
-        nu_command::IntoInt.run(engine_state, stack, call, input)
-    }
-}
-
-fn renamed(mut signature: Signature, name: &str) -> Signature {
-    signature.name = name.into();
-    signature
+fn style(engine_state: &EngineState, stack: &mut Stack, call: &Call) -> Result<Style, ShellError> {
+    Ok(if call.has_flag(engine_state, stack, DECIMAL_COMMA)? { Style::Comma } else { Style::Point })
 }
 
 /// The input with its texts at the call's cell paths (or all of it, without paths) checked
-/// and written as Nushell's own reads them: 1,500.25 (US) and 1.500,25 (EU) as 1500.25.
+/// and written as Nushell's own reads them: 1,500.25 (and 1.500,25 with --decimal-comma) as
+/// 1500.25.
 fn rewrite(engine_state: &EngineState, stack: &mut Stack, call: &Call, input: PipelineData, style: Style, kind: Kind) -> Result<PipelineData, ShellError> {
     let paths: Vec<CellPath> = call.rest(engine_state, stack, 0)?;
     let mut input = input;
@@ -209,7 +159,7 @@ fn rewrite_at(value: &mut Value, paths: &[CellPath], row: Option<usize>, style: 
 }
 
 /// The text written as Nushell's own reads it, when that is different; an error when it is
-/// not a number in this style.
+/// not a number written this way.
 fn rewritten(value: &Value, row: Option<usize>, path: Option<&CellPath>, style: Style, kind: Kind) -> Result<Option<Value>, ShellError> {
     let Value::String { val, .. } = value else {
         return Ok(None);
@@ -222,23 +172,34 @@ fn rewritten(value: &Value, row: Option<usize>, path: Option<&CellPath>, style: 
         (None, None) => "this text".into(),
     };
     let command = match (style, kind) {
-        (Style::Us, Kind::Float) => "into float",
-        (Style::Us, Kind::Int) => "into int",
-        (Style::Eu, Kind::Float) => "into float-eu",
-        (Style::Eu, Kind::Int) => "into int-eu",
+        (Style::Point, Kind::Float) => "into float",
+        (Style::Point, Kind::Int) => "into int",
+        (Style::Comma, Kind::Float) => "into float --decimal-comma",
+        (Style::Comma, Kind::Int) => "into int --decimal-comma",
     };
     let Some(text) = normalize(val.trim(), style, kind) else {
-        let (what, example, why, other) = match (style, kind) {
-            (Style::Us, Kind::Float) => ("a number", "1,500.25", "A comma groups thousands here.", "For a decimal comma (1,5 is one and a half): into float-eu."),
-            (Style::Us, Kind::Int) => ("a whole number", "1,500", "A comma groups thousands here.", "For dots between thousands (1.500): into int-eu."),
-            (Style::Eu, Kind::Float) => ("a number", "1.500,25", "A dot groups thousands here.", "For a decimal point (1.5 is one and a half): into float."),
-            (Style::Eu, Kind::Int) => ("a whole number", "1.500", "A dot groups thousands here.", "For commas between thousands (1,500): into int."),
+        let (what, help) = match (style, kind) {
+            (Style::Point, Kind::Float) => (
+                "a number with a decimal point (1,500.25)",
+                "A comma groups thousands here. For a decimal comma (1,5 is one and a half): into float --decimal-comma.",
+            ),
+            (Style::Point, Kind::Int) => (
+                "a whole number with commas between thousands (1,500)",
+                "A comma groups thousands here. For dots between thousands (1.500): into int --decimal-comma.",
+            ),
+            (Style::Comma, Kind::Float) => (
+                "a number with a decimal comma (1.500,25)",
+                "A dot groups thousands here. For a decimal point (1.5 is one and a half): into float without --decimal-comma.",
+            ),
+            (Style::Comma, Kind::Int) => (
+                "a whole number with dots between thousands (1.500)",
+                "A dot groups thousands here. For commas between thousands (1,500): into int without --decimal-comma.",
+            ),
         };
-        let style_name = if style == Style::Us { "US" } else { "European" };
         return Err(ShellError::Generic(
-            GenericError::new(format!("{val:?} is not {what} in {style_name} style ({example})"), place, value.span())
+            GenericError::new(format!("{val:?} is not {what}"), place, value.span())
                 .with_code("nux::into::number_style")
-                .with_help(format!("{why} {other}")),
+                .with_help(help),
         ));
     };
     if kind == Kind::Float && text.parse::<f64>().is_err() {
@@ -254,22 +215,23 @@ fn rewritten(value: &Value, row: Option<usize>, path: Option<&CellPath>, style: 
 }
 
 /// The text as Nushell's own reads it (no separators, a decimal point), or None when it has a
-/// comma or dot that this style does not allow there. Text without either is left as it is.
+/// comma or dot where this way of writing does not allow one. Text without either is left as
+/// it is.
 fn normalize(text: &str, style: Style, kind: Kind) -> Option<String> {
     let (sign, rest) = match text.strip_prefix(['+', '-']) {
         Some(rest) => (&text[..1], rest),
         None => ("", text),
     };
     match (style, kind) {
-        (Style::Us, _) if !text.contains(',') => Some(text.into()),
-        (Style::Eu, _) if !text.contains([',', '.']) => Some(text.into()),
-        (Style::Us, Kind::Int) => grouped(rest, ',').then(|| format!("{sign}{}", rest.replace(',', ""))),
-        (Style::Us, Kind::Float) => {
+        (Style::Point, _) if !text.contains(',') => Some(text.into()),
+        (Style::Comma, _) if !text.contains([',', '.']) => Some(text.into()),
+        (Style::Point, Kind::Int) => grouped(rest, ',').then(|| format!("{sign}{}", rest.replace(',', ""))),
+        (Style::Point, Kind::Float) => {
             let (whole, fraction) = split_fraction(rest, '.');
             (grouped(whole, ',') && fraction.is_none_or(digits)).then(|| format!("{sign}{}{}", whole.replace(',', ""), point(fraction)))
         }
-        (Style::Eu, Kind::Int) => grouped(rest, '.').then(|| format!("{sign}{}", rest.replace('.', ""))),
-        (Style::Eu, Kind::Float) => {
+        (Style::Comma, Kind::Int) => grouped(rest, '.').then(|| format!("{sign}{}", rest.replace('.', ""))),
+        (Style::Comma, Kind::Float) => {
             let (whole, fraction) = split_fraction(rest, ',');
             let whole_ok = if whole.contains('.') { grouped(whole, '.') } else { digits(whole) };
             (whole_ok && fraction.is_none_or(digits)).then(|| format!("{sign}{}{}", whole.replace('.', ""), point(fraction)))

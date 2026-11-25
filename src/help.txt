@@ -107,7 +107,7 @@ OTHER TOOLS ALREADY SPEAK JSON
       ^pnpm outdated --format json | complete | get stdout | from json   (exits 1 if any)
       open package.json | get scripts       (also yaml, toml, csv, xlsx, sqlite as data)
       open orders.csv | into float amount   csv/tsv values are text as written ("02134")
-                                            into float/int 1,500.25, into float-eu 1.500,25
+                                            into float 1,500.25, --decimal-comma 1.500,25
       http get <url>                        (JSON already parsed; --raw for text)
       http get --full --allow-errors <url> | get status    (not curl -w "%{http_code}";
                                             redirects: --redirect-mode manual)
