@@ -3,7 +3,7 @@
   "Run the tests. What fails, and why? Don't fix anything yet.",
   "Fix those bugs in src/ (not in the tests), and make sure the tests pass.",
   "Which commit introduced the rounding bug? Who made it, and when?",
-  "Rename the function calcTotal to computeTotal everywhere in the code (src/, test/, bin/). data/api-schema.json names a public API operation calcTotal: that name must stay as it is.",
+  "Rename the function calcTotal to computeTotal everywhere in the code (src/, test/, bin/), with no alias under the old name. Leave data/api-schema.json as it is: it names a public API operation calcTotal, and that name stays.",
   "Run node bin/report.js. Which customer has the most orders, and what is the highest total?",
   "Add --format csv to bin/report.js: the same rows, in the same order, as CSV with the header customer,orders,total, the total with two decimals, quoted the standard CSV way where needed. Without the flag it prints the JSON as before.",
   "Also add --min-total <amount> to the report: only the customers whose total is at least that amount, in both formats.",

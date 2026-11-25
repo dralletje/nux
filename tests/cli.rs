@@ -1852,3 +1852,33 @@ fn tee_on_one_value_finishes_its_closure() {
     let run = nux(&[], "[1 2 3] | tee { math sum | ignore } | math sum");
     assert_eq!(run.stdout, "6\n", "{}", run.stdout);
 }
+
+
+/// `git config`: all of git's settings as a table (key, value, scope, file); with a key, its
+/// value, or null when it is not set (git itself exits 1 for that, which in nux is an error:
+/// agents ran `^git config user.name` before committing and got one).
+#[test]
+fn git_config_gives_settings_as_a_table() {
+    let dir = git_repo("config");
+    let global = dir.with_extension("gitconfig");
+    std::fs::write(&global, "[user]\n\tname = Ada Example\n[alias]\n\tst = status --short\n").unwrap();
+    let env: &[(&str, &std::path::Path)] = &[("GIT_CONFIG_GLOBAL", &global), ("GIT_CONFIG_NOSYSTEM", std::path::Path::new("1"))];
+    let at = format!("cd '{}'\n", dir.display());
+    let run = nux_with(&[], &format!("{at}git config | where key in [user.name alias.st core.bare] | select key value scope | to json --raw"), env);
+    assert_eq!(
+        run.stdout,
+        "[{\"key\":\"user.name\",\"value\":\"Ada Example\",\"scope\":\"global\"},{\"key\":\"alias.st\",\"value\":\"status --short\",\"scope\":\"global\"},{\"key\":\"core.bare\",\"value\":\"false\",\"scope\":\"local\"}]\n",
+        "{}",
+        run.stderr
+    );
+    let run = nux_with(&[], &format!("{at}git config | where key == user.name | get file.0"), env);
+    assert_eq!(run.stdout.trim(), global.display().to_string(), "{}", run.stderr);
+    let run = nux_with(&[], &format!("{at}git config user.name"), env);
+    assert_eq!((run.status, run.stdout.as_str()), (0, "Ada Example\n"), "{}", run.stderr);
+    let run = nux_with(&[], &format!("{at}git config user.email | describe"), env);
+    assert_eq!((run.status, run.stdout.as_str()), (0, "nothing\n"), "{}", run.stdout);
+    // Changing a setting is git's own.
+    let run = nux_with(&[], &format!("{at}git config user.name Grace"), env);
+    assert_eq!(run.status, 1);
+    assert!(run.stdout.contains("^git config user.name Grace"), "{}", run.stdout);
+}

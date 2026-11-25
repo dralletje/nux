@@ -74,6 +74,7 @@ COMMANDS THAT GIVE TABLES   (examples for each: nux help <command>)
       git info                              root, branch, head, upstream, ahead, behind, ...
       git show-file HEAD~3 src/a.ts         a file's text at a commit (paths from here)
       git status | where ... | git add      stage the rows; gives git status after
+      git config user.name                  a setting, null when not set; no key: a table
   `git` is only these; anything else (`git commit`, `git push`) is an error: git
   itself is `^git commit -m "..."`. pnpm, docker and the rest work as in any shell.
       ^pnpm typecheck | complete | from tsc

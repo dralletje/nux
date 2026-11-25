@@ -1,7 +1,7 @@
 # git, with tables as results. git itself has no structured output.
 #
 # In nux, `git` is this module: `git log`, `git status`, `git diff`, `git hunks`,
-# `git info`, `git add`, `git show-file` (and `git changes`, another name for `git diff`). Anything else
+# `git info`, `git add`, `git show-file`, `git config` (and `git changes`, another name for `git diff`). Anything else
 # (`git commit`, `git status --short`) does not fall through to git itself: `git` refuses it
 # and says to use `^git`, so a call never gets git's text where it expected a table. The
 # prelude takes it in with `export use git.nu` (no `*`), which names the commands `git ...`.
@@ -213,6 +213,52 @@ def parse-numstat [separator: string, here: list<string>]: string -> table {
       path: ($parts | skip 2 | str join "\t" | from-here $here)
       added: (if $parts.0 == "-" { null } else { $parts.0 | into int })
       deleted: (if $parts.1 == "-" { null } else { $parts.1 | into int })
+    }
+  }
+}
+
+# git's settings as a table: key, value, scope, file. With a key, its value (null when not set).
+#
+# The table has every setting git reads here, in the order it reads them (system, global,
+# local, worktree): when a key is in more than one place, the last is the one that counts.
+# A key with a value means `true` when written without one (`[core] bare`): its value is
+# "true". With a key, the value that counts: what `^git config --get` gives, but null when it
+# is not set instead of a failure. To change a setting: ^git config <key> <value>.
+@search-terms "git config" settings user.name user.email alias
+@example "Who commits here" { git config user.name }
+@example "All aliases" { git config | where key starts-with alias. | select key value }
+@example "Where a setting comes from" { git config | where key == core.editor | select value scope file }
+export def config [
+  key?: string    # One setting, e.g. user.name: its value, or null when not set
+  ...rest: string # Not taken: changing a setting is ^git config <key> <value>
+]: nothing -> any {
+  if ($rest | is-not-empty) {
+    let line = ([$key] ++ $rest | each {|argument| as-typed $argument } | str join ' ')
+    error make {
+      msg: "git config here only reads settings"
+      label: {text: "a value to set", span: (metadata $rest).span}
+      help: $"To change a setting, git itself: ^git config ($line)"
+    }
+  }
+  if $key != null {
+    let run = (^git config --get $key | complete)
+    # 1: not set. Anything else is git saying what is wrong (a key without a section, ...).
+    if $run.exit_code == 1 { return null }
+    if $run.exit_code != 0 {
+      error make {msg: $"git config ($key) failed", help: ($run.stderr | str trim)}
+    }
+    return ($run.stdout | str trim --right --char "\n")
+  }
+  # Each setting: scope, NUL, origin ("file:<path>", "command line:"), NUL, key, then
+  # "\n<value>" when it has one, NUL.
+  let parts = (run-git [config --list --show-scope --show-origin -z] | split row (char nul))
+  $parts | drop 1 | chunks 3 | each {|setting|
+    let pair = ($setting.2 | split row --number 2 "\n")
+    {
+      key: $pair.0
+      value: ($pair | get --optional 1 | default "true")
+      scope: $setting.0
+      file: ($setting.1 | str replace --regex '^file:' '')
     }
   }
 }
