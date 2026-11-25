@@ -1705,3 +1705,48 @@ fn nux_log_reads_the_log_back() {
     assert!(run.stdout.contains("[nux-ts,eval,ok,null]"), "{}", run.stdout);
     assert!(run.stdout.contains(&format!("[\"nux-rs {}\",eval,unfinished,\"read back\"]", env!("CARGO_PKG_VERSION"))), "{}", run.stdout);
 }
+
+
+/// CSV and TSV come back as text, as written: Nushell's guess per cell drops the leading zero
+/// of a zip code, the `+` of a phone number and the zero of 12.50, and gives one column ints in
+/// some rows and floats or text in others. A number is one `into float <column>` away.
+#[test]
+fn csv_and_tsv_values_stay_text() {
+    let run = nux(&[], r#""zip,phone,amount\n02134,+31612345678,12.50\n90210,0612345678,7\n" | from csv | to json --raw"#);
+    assert_eq!(
+        run.stdout,
+        "[{\"zip\":\"02134\",\"phone\":\"+31612345678\",\"amount\":\"12.50\"},{\"zip\":\"90210\",\"phone\":\"0612345678\",\"amount\":\"7\"}]\n",
+        "{}",
+        run.stderr
+    );
+    let run = nux(&[], r#""zip\tamount\n02134\t12.50\n" | from tsv | to json --raw"#);
+    assert_eq!(run.stdout, "[{\"zip\":\"02134\",\"amount\":\"12.50\"}]\n", "{}", run.stderr);
+    // `open` parses with the same commands.
+    let run = nux(
+        &[],
+        r#"let dir = (mktemp -d); "zip,amount\n02134,12.50\n" | save $"($dir)/a.csv"; "zip\tamount\n02134\t12.50\n" | save $"($dir)/a.tsv"
+        [(open $"($dir)/a.csv") (open $"($dir)/a.tsv")] | to json --raw"#,
+    );
+    assert_eq!(run.stdout, "[[{\"zip\":\"02134\",\"amount\":\"12.50\"}],[{\"zip\":\"02134\",\"amount\":\"12.50\"}]]\n", "{}", run.stderr);
+    // The flags of Nushell's own still work, --no-infer too (it changes nothing now).
+    let run = nux(&[], r##""# note\n01;2\n" | from csv --separator ';' --noheaders --comment '#' --no-infer | to json --raw"##);
+    assert_eq!(run.stdout, "[{\"column0\":\"01\",\"column1\":\"2\"}]\n", "{}", run.stderr);
+    // nux help says so.
+    assert!(nux(&["help"], "").stdout.contains("csv/tsv values are text as written"));
+    // To numbers, by column.
+    let run = nux(&[], r#""item,amount\na,12.50\nb,7\nc,30\n" | from csv | into float amount | sort-by amount --reverse | get item | to json --raw"#);
+    assert_eq!(run.stdout, "[\"c\",\"a\",\"b\"]\n", "{}", run.stderr);
+}
+
+/// `ans` (and `in`, `nu`, `env`) are Nushell's own variables: Nushell says so, the hint says
+/// what to write instead. Agents wrote `let ans = ...` six times in the eval.
+#[test]
+fn a_builtin_variable_name_gets_another_name() {
+    let run = nux(&[], "let ans = 5; $ans + 1");
+    assert_eq!(run.status, 1);
+    assert!(run.stdout.contains("Hint: `$ans` is Nushell's own; name yours otherwise: `let answer = ...`"), "{}", run.stdout);
+    let run = nux(&[], "let in = 5");
+    assert!(run.stdout.contains("Hint: `$in` is Nushell's own; name yours otherwise: `let input = ...`"), "{}", run.stdout);
+    let run = nux(&[], "[1 2] | each {|nu| $nu }");
+    assert!(run.stdout.contains("Hint: `$nu` is Nushell's own"), "{}", run.stdout);
+}

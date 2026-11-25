@@ -20,6 +20,7 @@ mod pipelines;
 mod preview;
 mod shell;
 mod strings;
+mod variables;
 
 use miette::Diagnostic;
 use nu_protocol::{CompileError, ParseError, ShellError};
@@ -30,7 +31,7 @@ pub use preview::{large_text, large_value};
 
 /// The helpers that give hints for errors, asked in this order.
 const ERROR_HELPERS: &[fn(&ErrorContext) -> Option<String>] =
-    &[flags::hint, shell::hint, strings::hint, glob::hint, markdown::hint, pipelines::hint, interpolation::hint, exit::hint];
+    &[flags::hint, shell::hint, strings::hint, glob::hint, markdown::hint, pipelines::hint, interpolation::hint, exit::hint, variables::hint];
 
 /// The error as Nushell made it, for helpers that need its fields.
 pub enum Raw<'a> {

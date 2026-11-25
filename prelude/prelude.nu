@@ -13,6 +13,7 @@ export use nux/ast *
 export use nux/output *
 export use nux/usage *
 export use nux/edit-file
+export use nux/csv *
 # Not loaded here, only with `use` (listed in `nux help`): nux/capped, nux/cookie-jar,
 # nux/pnpm, nux/npm.
 

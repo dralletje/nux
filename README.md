@@ -117,14 +117,13 @@ results come back as structured data.
   pipelines or scripts directly.
 - When unsure how to do something in nux, look it up (`nux find <word>`,
   `nux help <command>`) instead of falling back to bash.
-- Read, write and edit files with your file tools, not through nux (no `open`, `save`,
-  `str replace` on files, heredocs or sed).
 - Inside nux, prefer its native commands over external tools: `search` instead of
   `^grep`/`^rg`, `ls`/`glob` instead of `^find`, and so on.
 ```
 
-The file-tools rule is for agents that have them (Claude Code: Read, Write, Edit); leave it
-out for one whose only tool is the shell.
+There is no rule here to read and edit files with the agent's own file tools rather than
+through nux: in the eval (`docs/nux-vs-bash-eval.md`, run 3) such a rule made agents take
+more turns (Opus nearly twice as many) for the same results.
 
 ## Claude Code: nux and nothing else (optional)
 
