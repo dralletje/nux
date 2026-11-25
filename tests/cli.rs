@@ -1772,8 +1772,8 @@ fn into_float_and_int_read_us_numbers() {
     }
     let run = nux(&[], r#"[[item amount]; [a "12.50"] [b "1,5"]] | into float amount"#);
     assert!(run.stdout.contains("row 1, amount"), "{}", run.stdout);
-    assert!(run.stdout.contains("into float --decimal-comma"), "{}", run.stdout);
-    assert!(nux(&[], r#""1,5" | into int"#).stdout.contains("into int --decimal-comma"));
+    assert!(run.stdout.contains("into float --decimal=comma"), "{}", run.stdout);
+    assert!(nux(&[], r#""1,5" | into int"#).stdout.contains("into int --decimal=comma"));
     // Other bases are left alone.
     let run = nux(&[], r#""ff" | into int --radix 16"#);
     assert_eq!(run.stdout, "255\n", "{}", run.stdout);
@@ -1804,22 +1804,27 @@ open $"($dir)/o.csv" | into float amount"#,
 }
 
 
-/// `into float --decimal-comma` and `into int --decimal-comma` read numbers as much of Europe
+/// `into float --decimal=comma` and `into int --decimal=comma` read numbers as much of Europe
 /// writes them: a dot groups thousands, a comma is the decimal one (1.500,25). Anything else
-/// is an error that says to leave the flag out.
+/// is an error that points to --decimal=point, the default.
 #[test]
 fn into_float_and_int_read_a_decimal_comma() {
-    assert!(nux(&["help"], "").stdout.contains("--decimal-comma 1.500,25"));
-    let run = nux(&[], r#"["1.500,25" "1,5" "1.500" "12" "-1.234.567,5"] | into float --decimal-comma | to json --raw"#);
+    let run = nux(&[], r#"["1,500.25" "2"] | into float --decimal=point | to json --raw"#);
+    assert_eq!(run.stdout, "[1500.25,2.0]\n", "{}", run.stdout);
+    let run = nux(&[], r#""1.5" | into float --decimal=dot"#);
+    assert_eq!(run.status, 1, "{}", run.stdout);
+    assert!(run.stdout.contains("point or comma"), "{}", run.stdout);
+    assert!(nux(&["help"], "").stdout.contains("--decimal=comma 1.500,25"));
+    let run = nux(&[], r#"["1.500,25" "1,5" "1.500" "12" "-1.234.567,5"] | into float --decimal=comma | to json --raw"#);
     assert_eq!(run.stdout, "[1500.25,1.5,1500.0,12.0,-1234567.5]\n", "{}", run.stdout);
-    let run = nux(&[], r#"["1.500" "1.234.567" "42"] | into int --decimal-comma | to json --raw"#);
+    let run = nux(&[], r#"["1.500" "1.234.567" "42"] | into int --decimal=comma | to json --raw"#);
     assert_eq!(run.stdout, "[1500,1234567,42]\n", "{}", run.stdout);
-    let run = nux(&[], r#"[[item amount]; [a "12,50"] [b " 7 "]] | into float --decimal-comma amount | to json --raw"#);
+    let run = nux(&[], r#"[[item amount]; [a "12,50"] [b " 7 "]] | into float --decimal=comma amount | to json --raw"#);
     assert_eq!(run.stdout, "[{\"item\":\"a\",\"amount\":12.5},{\"item\":\"b\",\"amount\":7.0}]\n", "{}", run.stdout);
     for (code, says, other) in [
-        (r#""1.5" | into float --decimal-comma"#, r#""1.5" is not a number with a decimal comma (1.500,25)"#, "into float without --decimal-comma"),
-        (r#""1,5" | into int --decimal-comma"#, r#""1,5" is not a whole number with dots between thousands (1.500)"#, "into int without --decimal-comma"),
-        (r#""n/a" | into float --decimal-comma"#, r#""n/a" is not a number"#, "catch { null }"),
+        (r#""1.5" | into float --decimal=comma"#, r#""1.5" is not a number with a decimal comma (1.500,25)"#, "into float --decimal=point"),
+        (r#""1,5" | into int --decimal=comma"#, r#""1,5" is not a whole number with dots between thousands (1.500)"#, "into int --decimal=point"),
+        (r#""n/a" | into float --decimal=comma"#, r#""n/a" is not a number"#, "catch { null }"),
     ] {
         let run = nux(&[], code);
         assert_eq!(run.status, 1, "{code}: {}", run.stdout);

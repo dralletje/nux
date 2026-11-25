@@ -305,7 +305,7 @@ in all runs now, the most common Nushell error here); `=~` and `!~` on a float t
 ## Run 4 (2026-11-25): text CSV, and a task of six parts
 
 Since run 3, nux changed: `from csv`/`open x.csv` give text as written (no guessing per
-cell), `into float`/`into int` read 1,500.25 and refuse "1,5" (`--decimal-comma` for
+cell), `into float`/`into int` read 1,500.25 and refuse "1,5" (`--decimal=comma` for
 1.500,25), a hint for `let ans`, and the file-tools rule is out of the user's CLAUDE.md.
 Both parts use nux-nofiles (the instructions as they are now) and a release build.
 
